@@ -16,7 +16,9 @@ abstract final class AppRoutes {
   static const more = '/more';
 }
 
-final appRouter = GoRouter(
+/// Factory rather than a global: each app instance gets its own router
+/// (a shared singleton would leak navigation state across widget tests).
+GoRouter createAppRouter() => GoRouter(
   initialLocation: AppRoutes.home,
   routes: [
     StatefulShellRoute.indexedStack(
@@ -58,5 +60,5 @@ final appRouter = GoRouter(
         child: AddTransactionScreen(),
       ),
     ),
-  ],
-);
+      ],
+    );

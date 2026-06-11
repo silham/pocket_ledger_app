@@ -48,6 +48,7 @@ class Categories extends Table with SyncColumns {
   BoolColumn get isArchived => boolean().withDefault(const Constant(false))();
 }
 
+@DataClassName('Person')
 class People extends Table with SyncColumns {
   TextColumn get name => text().withLength(min: 1, max: 100)();
   TextColumn get phone => text().nullable()();

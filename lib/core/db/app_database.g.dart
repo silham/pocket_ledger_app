@@ -1268,7 +1268,7 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
   }
 }
 
-class $PeopleTable extends People with TableInfo<$PeopleTable, PeopleData> {
+class $PeopleTable extends People with TableInfo<$PeopleTable, Person> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
@@ -1392,7 +1392,7 @@ class $PeopleTable extends People with TableInfo<$PeopleTable, PeopleData> {
   static const String $name = 'people';
   @override
   VerificationContext validateIntegrity(
-    Insertable<PeopleData> instance, {
+    Insertable<Person> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
@@ -1456,9 +1456,9 @@ class $PeopleTable extends People with TableInfo<$PeopleTable, PeopleData> {
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  PeopleData map(Map<String, dynamic> data, {String? tablePrefix}) {
+  Person map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return PeopleData(
+    return Person(
       id: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}id'],
@@ -1504,7 +1504,7 @@ class $PeopleTable extends People with TableInfo<$PeopleTable, PeopleData> {
   }
 }
 
-class PeopleData extends DataClass implements Insertable<PeopleData> {
+class Person extends DataClass implements Insertable<Person> {
   final String id;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -1514,7 +1514,7 @@ class PeopleData extends DataClass implements Insertable<PeopleData> {
   final String? email;
   final String? notes;
   final bool isArchived;
-  const PeopleData({
+  const Person({
     required this.id,
     required this.createdAt,
     required this.updatedAt,
@@ -1570,12 +1570,12 @@ class PeopleData extends DataClass implements Insertable<PeopleData> {
     );
   }
 
-  factory PeopleData.fromJson(
+  factory Person.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return PeopleData(
+    return Person(
       id: serializer.fromJson<String>(json['id']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -1603,7 +1603,7 @@ class PeopleData extends DataClass implements Insertable<PeopleData> {
     };
   }
 
-  PeopleData copyWith({
+  Person copyWith({
     String? id,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -1613,7 +1613,7 @@ class PeopleData extends DataClass implements Insertable<PeopleData> {
     Value<String?> email = const Value.absent(),
     Value<String?> notes = const Value.absent(),
     bool? isArchived,
-  }) => PeopleData(
+  }) => Person(
     id: id ?? this.id,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -1624,8 +1624,8 @@ class PeopleData extends DataClass implements Insertable<PeopleData> {
     notes: notes.present ? notes.value : this.notes,
     isArchived: isArchived ?? this.isArchived,
   );
-  PeopleData copyWithCompanion(PeopleCompanion data) {
-    return PeopleData(
+  Person copyWithCompanion(PeopleCompanion data) {
+    return Person(
       id: data.id.present ? data.id.value : this.id,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -1642,7 +1642,7 @@ class PeopleData extends DataClass implements Insertable<PeopleData> {
 
   @override
   String toString() {
-    return (StringBuffer('PeopleData(')
+    return (StringBuffer('Person(')
           ..write('id: $id, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -1671,7 +1671,7 @@ class PeopleData extends DataClass implements Insertable<PeopleData> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is PeopleData &&
+      (other is Person &&
           other.id == this.id &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
@@ -1683,7 +1683,7 @@ class PeopleData extends DataClass implements Insertable<PeopleData> {
           other.isArchived == this.isArchived);
 }
 
-class PeopleCompanion extends UpdateCompanion<PeopleData> {
+class PeopleCompanion extends UpdateCompanion<Person> {
   final Value<String> id;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
@@ -1718,7 +1718,7 @@ class PeopleCompanion extends UpdateCompanion<PeopleData> {
     this.isArchived = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : name = Value(name);
-  static Insertable<PeopleData> custom({
+  static Insertable<Person> custom({
     Expression<String>? id,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
@@ -4660,7 +4660,7 @@ typedef $$PeopleTableUpdateCompanionBuilder =
     });
 
 final class $$PeopleTableReferences
-    extends BaseReferences<_$AppDatabase, $PeopleTable, PeopleData> {
+    extends BaseReferences<_$AppDatabase, $PeopleTable, Person> {
   $$PeopleTableReferences(super.$_db, super.$_table, super.$_typedResult);
 
   static MultiTypedResultKey<$TransactionsTable, List<Transaction>>
@@ -4886,14 +4886,14 @@ class $$PeopleTableTableManager
         RootTableManager<
           _$AppDatabase,
           $PeopleTable,
-          PeopleData,
+          Person,
           $$PeopleTableFilterComposer,
           $$PeopleTableOrderingComposer,
           $$PeopleTableAnnotationComposer,
           $$PeopleTableCreateCompanionBuilder,
           $$PeopleTableUpdateCompanionBuilder,
-          (PeopleData, $$PeopleTableReferences),
-          PeopleData,
+          (Person, $$PeopleTableReferences),
+          Person,
           PrefetchHooks Function({bool transactionsRefs})
         > {
   $$PeopleTableTableManager(_$AppDatabase db, $PeopleTable table)
@@ -4970,7 +4970,7 @@ class $$PeopleTableTableManager
                 return [
                   if (transactionsRefs)
                     await $_getPrefetchedData<
-                      PeopleData,
+                      Person,
                       $PeopleTable,
                       Transaction
                     >(
@@ -4998,14 +4998,14 @@ typedef $$PeopleTableProcessedTableManager =
     ProcessedTableManager<
       _$AppDatabase,
       $PeopleTable,
-      PeopleData,
+      Person,
       $$PeopleTableFilterComposer,
       $$PeopleTableOrderingComposer,
       $$PeopleTableAnnotationComposer,
       $$PeopleTableCreateCompanionBuilder,
       $$PeopleTableUpdateCompanionBuilder,
-      (PeopleData, $$PeopleTableReferences),
-      PeopleData,
+      (Person, $$PeopleTableReferences),
+      Person,
       PrefetchHooks Function({bool transactionsRefs})
     >;
 typedef $$TransactionsTableCreateCompanionBuilder =
