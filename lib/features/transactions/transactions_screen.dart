@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -117,6 +118,7 @@ class _DismissibleTile extends ConsumerWidget {
       confirmDismiss: (_) => _confirmDelete(context),
       onDismissed: (_) async {
         await ref.read(ledgerServiceProvider).deleteTransaction(t.id);
+        HapticFeedback.mediumImpact();
         showAppSnackBar('${t.type.label} deleted');
       },
       child: TransactionTile(item: item),
