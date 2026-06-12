@@ -22,6 +22,17 @@ int? parseAmountToMinor(String input) {
   return minor.toInt();
 }
 
+/// Minor units -> plain editable text: 45050 -> "450.50", 45000 -> "450".
+/// Used to prefill the amount field when editing.
+String minorToInputString(int minor) {
+  final abs = minor.abs();
+  final whole = abs ~/ 100;
+  final cents = abs % 100;
+  final sign = minor < 0 ? '-' : '';
+  if (cents == 0) return '$sign$whole';
+  return '$sign$whole.${cents.toString().padLeft(2, '0')}';
+}
+
 /// Formats minor units for display: 45050 -> "Rs. 450.50".
 String formatMinor(int minor, {String symbol = 'Rs.'}) {
   final sign = minor < 0 ? '-' : '';

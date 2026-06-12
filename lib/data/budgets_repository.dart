@@ -1,0 +1,86 @@
+import 'package:drift/drift.dart';
+
+import '../core/db/app_database.dart';
+import '../domain/models/enums.dart';
+
+class BudgetsRepository {
+  BudgetsRepository(this._db);
+
+  final AppDatabase _db;
+
+  Stream<List<Budget>> watchMonth(int year, int month) =>
+      (_db.select(_db.budgets)
+            ..where((b) =>
+                b.year.equals(year) &
+                b.month.equals(month) &
+                b.deletedAt.isNull()))
+          .watch();
+
+  /// Create-or-update for (year, month, category). categoryId == null means
+  /// the overall monthly budget. SQLite's unique index can't enforce
+  /// single-NULL-category rows, so the upsert here is the guard.
+  Future<void> setBudget({
+    required int year,
+    required int month,
+    required int amountMinor,
+    String? categoryId,
+  }) {
+    return _db.transaction(() async {
+      // Includes soft-deleted rows: the unique (year, month, category) index
+      // still sees them, so a re-created budget must resurrect the tombstone.
+      final existingQuery = _db.select(_db.budgets)
+        ..where((b) => b.year.equals(year) & b.month.equals(month))
+        ..where((b) => categoryId == null
+            ? b.categoryId.isNull()
+            : b.categoryId.equals(categoryId));
+      final existing = await existingQuery.getSingleOrNull();
+
+      if (existing != null) {
+        await (_db.update(_db.budgets)
+              ..where((b) => b.id.equals(existing.id)))
+            .write(BudgetsCompanion(
+          amountMinor: Value(amountMinor),
+          deletedAt: const Value(null),
+          updatedAt: Value(DateTime.now().toUtc()),
+        ));
+        await _db.logChange(
+          table: 'budgets',
+          rowId: existing.id,
+          operation: ChangeOperation.update,
+        );
+      } else {
+        final budget = await _db.into(_db.budgets).insertReturning(
+              BudgetsCompanion.insert(
+                amountMinor: amountMinor,
+                month: month,
+                year: year,
+                isOverall: Value(categoryId == null),
+                categoryId: Value(categoryId),
+              ),
+            );
+        await _db.logChange(
+          table: 'budgets',
+          rowId: budget.id,
+          operation: ChangeOperation.insert,
+        );
+      }
+    });
+  }
+
+  /// Soft delete (deletedAt tombstone for future sync).
+  Future<void> delete(String id) {
+    return _db.transaction(() async {
+      final now = DateTime.now().toUtc();
+      await (_db.update(_db.budgets)..where((b) => b.id.equals(id)))
+          .write(BudgetsCompanion(
+        deletedAt: Value(now),
+        updatedAt: Value(now),
+      ));
+      await _db.logChange(
+        table: 'budgets',
+        rowId: id,
+        operation: ChangeOperation.delete,
+      );
+    });
+  }
+}

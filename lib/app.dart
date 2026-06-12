@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'providers/settings_providers.dart';
 
 /// App-wide messenger so flows can show snackbars after popping their
 /// own scaffold (e.g. "saved" toast after the add-transaction screen closes).
@@ -14,14 +16,14 @@ void showAppSnackBar(String message) {
     ..showSnackBar(SnackBar(content: Text(message)));
 }
 
-class PocketLedgerApp extends StatefulWidget {
+class PocketLedgerApp extends ConsumerStatefulWidget {
   const PocketLedgerApp({super.key});
 
   @override
-  State<PocketLedgerApp> createState() => _PocketLedgerAppState();
+  ConsumerState<PocketLedgerApp> createState() => _PocketLedgerAppState();
 }
 
-class _PocketLedgerAppState extends State<PocketLedgerApp> {
+class _PocketLedgerAppState extends ConsumerState<PocketLedgerApp> {
   // Owned by this state so rebuilds don't recreate the router
   // (which would reset navigation).
   late final GoRouter _router = createAppRouter();
@@ -40,7 +42,7 @@ class _PocketLedgerAppState extends State<PocketLedgerApp> {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
+      themeMode: ref.watch(themeModeProvider),
       routerConfig: _router,
     );
   }

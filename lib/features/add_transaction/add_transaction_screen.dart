@@ -10,22 +10,27 @@ import '../../core/widgets/selector_sheet.dart';
 import '../../domain/ledger/ledger_service.dart';
 import '../../domain/models/enums.dart';
 import '../../providers/data_providers.dart';
-
-/// Friendly labels for the type chips. Settlement is split into its two
-/// directions so the whole flow stays one tap (PWA parity: /add).
-const _typeLabels = {
-  TransactionType.expense: 'Expense',
-  TransactionType.income: 'Income',
-  TransactionType.transfer: 'Transfer',
-  TransactionType.lend: 'Lend',
-  TransactionType.borrow: 'Borrow',
-  TransactionType.settlementReceived: 'Settle In',
-  TransactionType.settlementPaid: 'Settle Out',
-  TransactionType.adjustment: 'Adjust',
-};
+import '../../providers/database_provider.dart';
 
 class AddTransactionScreen extends ConsumerStatefulWidget {
-  const AddTransactionScreen({super.key});
+  const AddTransactionScreen({
+    super.key,
+    this.editId,
+    this.initialType,
+    this.initialPersonId,
+    this.initialAccountId,
+    this.initialAmountMinor,
+  });
+
+  /// When set, the form loads this transaction and saves via update.
+  final String? editId;
+
+  /// Optional preselections (ignored when editing). Used by the
+  /// person-ledger settle flow and the accounts screen's balance adjust.
+  final TransactionType? initialType;
+  final String? initialPersonId;
+  final String? initialAccountId;
+  final int? initialAmountMinor;
 
   @override
   ConsumerState<AddTransactionScreen> createState() =>
@@ -46,11 +51,84 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   var _saving = false;
   String? _amountError;
 
+  bool get _isEditing => widget.editId != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isEditing) {
+      _loadForEdit(widget.editId!);
+    } else {
+      _applyInitialValues();
+    }
+  }
+
+  Future<void> _applyInitialValues() async {
+    if (widget.initialType != null) _type = widget.initialType!;
+    if (widget.initialAmountMinor != null) {
+      _amountController.text = minorToInputString(widget.initialAmountMinor!);
+    }
+    final db = ref.read(databaseProvider);
+    final personId = widget.initialPersonId;
+    if (personId != null) {
+      final person = await (db.select(db.people)
+            ..where((p) => p.id.equals(personId)))
+          .getSingleOrNull();
+      if (person != null && mounted) setState(() => _person = person);
+    }
+    final accountId = widget.initialAccountId;
+    if (accountId != null) {
+      final account = await (db.select(db.accounts)
+            ..where((a) => a.id.equals(accountId)))
+          .getSingleOrNull();
+      if (account != null && mounted) setState(() => _account = account);
+    }
+  }
+
   @override
   void dispose() {
     _amountController.dispose();
     _noteController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadForEdit(String id) async {
+    final db = ref.read(databaseProvider);
+    final t = await ref.read(transactionsRepositoryProvider).findById(id);
+    if (t == null) {
+      showAppSnackBar('Transaction not found');
+      if (mounted) context.pop();
+      return;
+    }
+
+    Future<Account?> account(String? accountId) async => accountId == null
+        ? null
+        : (db.select(db.accounts)..where((a) => a.id.equals(accountId)))
+            .getSingleOrNull();
+    final category = t.categoryId == null
+        ? null
+        : await (db.select(db.categories)
+              ..where((c) => c.id.equals(t.categoryId!)))
+            .getSingleOrNull();
+    final person = t.personId == null
+        ? null
+        : await (db.select(db.people)..where((p) => p.id.equals(t.personId!)))
+            .getSingleOrNull();
+    final mainAccount = await account(t.accountId);
+    final toAccount = await account(t.toAccountId);
+
+    if (!mounted) return;
+    setState(() {
+      _type = t.type;
+      _amountController.text = minorToInputString(t.amountMinor);
+      _noteController.text = t.note ?? '';
+      _date = t.date.toLocal();
+      _reduceBalance = t.isNegativeAdjustment;
+      _account = mainAccount;
+      _toAccount = toAccount;
+      _category = category;
+      _person = person;
+    });
   }
 
   @override
@@ -60,7 +138,9 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
     if (_account == null && accounts.isNotEmpty) _account = accounts.first;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Transaction')),
+      appBar: AppBar(
+        title: Text(_isEditing ? 'Edit Transaction' : 'Add Transaction'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -117,7 +197,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
             ),
-            child: Text(_saving ? 'Saving…' : 'Save'),
+            child: Text(_saving ? 'Saving…' : (_isEditing ? 'Update' : 'Save')),
           ),
         ],
       ),
@@ -125,16 +205,17 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   }
 
   Widget _buildTypeChips() {
+    // Settlement appears as its two directions so the flow stays one tap.
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        for (final entry in _typeLabels.entries)
+        for (final type in TransactionType.values)
           ChoiceChip(
-            label: Text(entry.value),
-            selected: _type == entry.key,
+            label: Text(type.label),
+            selected: _type == type,
             onSelected: (_) => setState(() {
-              _type = entry.key;
+              _type = type;
               // Reset fields that don't apply to the new type.
               if (!_type.usesCategory) _category = null;
               if (_category != null &&
@@ -323,23 +404,28 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
 
     setState(() => _saving = true);
     try {
-      await ref.read(ledgerServiceProvider).createTransaction(
-            TransactionDraft(
-              type: _type,
-              amountMinor: amountMinor,
-              date: _date,
-              accountId: account.id,
-              toAccountId: _toAccount?.id,
-              categoryId: _category?.id,
-              personId: _person?.id,
-              note: _noteController.text.trim().isEmpty
-                  ? null
-                  : _noteController.text.trim(),
-              isNegativeAdjustment:
-                  _type == TransactionType.adjustment && _reduceBalance,
-            ),
-          );
-      showAppSnackBar('${_typeLabels[_type]} saved');
+      final draft = TransactionDraft(
+        type: _type,
+        amountMinor: amountMinor,
+        date: _date,
+        accountId: account.id,
+        toAccountId: _toAccount?.id,
+        categoryId: _category?.id,
+        personId: _person?.id,
+        note: _noteController.text.trim().isEmpty
+            ? null
+            : _noteController.text.trim(),
+        isNegativeAdjustment:
+            _type == TransactionType.adjustment && _reduceBalance,
+      );
+      final ledger = ref.read(ledgerServiceProvider);
+      if (_isEditing) {
+        await ledger.updateTransaction(widget.editId!, draft);
+      } else {
+        await ledger.createTransaction(draft);
+      }
+      showAppSnackBar(
+          '${_type.label} ${_isEditing ? 'updated' : 'saved'}');
       if (mounted) context.pop();
     } on LedgerValidationException catch (e) {
       showAppSnackBar(e.message);
