@@ -99,7 +99,7 @@ class _StatGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final net = summary.monthNetMinor;
+    final net = summary.last30NetMinor;
     return Column(
       children: [
         Row(children: [
@@ -113,7 +113,7 @@ class _StatGrid extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: _StatCard(
-              label: 'Net this month',
+              label: 'Net — past 30 days',
               value:
                   '${net < 0 ? '-' : '+'}${formatMinor(net.abs())}',
               color: net < 0
@@ -126,16 +126,16 @@ class _StatGrid extends StatelessWidget {
         Row(children: [
           Expanded(
             child: _StatCard(
-              label: 'Income this month',
-              value: formatMinor(summary.monthIncomeMinor),
+              label: 'Income — past 30 days',
+              value: formatMinor(summary.last30IncomeMinor),
               color: Colors.green.shade700,
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: _StatCard(
-              label: 'Spent this month',
-              value: formatMinor(summary.monthExpenseMinor),
+              label: 'Spent — past 30 days',
+              value: formatMinor(summary.last30ExpenseMinor),
               color: Theme.of(context).colorScheme.error,
             ),
           ),
@@ -284,13 +284,15 @@ class _BalanceChartCard extends StatelessWidget {
                         interval: 7,
                         getTitlesWidget: (value, meta) {
                           final i = value.toInt();
-                          if (i < 0 || i >= days.length) {
+                          // Strict weekly ticks only — fl_chart sometimes
+                          // adds an extra edge label that overlaps.
+                          if (i < 0 || i >= days.length || i % 7 != 0) {
                             return const SizedBox.shrink();
                           }
                           return Padding(
                             padding: const EdgeInsets.only(top: 4),
                             child: Text(
-                              DateFormat('d MMM').format(days[i].day),
+                              DateFormat('M/d').format(days[i].day),
                               style: Theme.of(context).textTheme.labelSmall,
                             ),
                           );

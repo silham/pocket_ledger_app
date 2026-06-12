@@ -28,10 +28,12 @@ class TransactionsRepository {
   final AppDatabase _db;
 
   /// Newest first, soft-deleted rows excluded, optionally filtered by
-  /// type and/or person (person ledger).
+  /// type, person, and/or a calendar month (year + month).
   Stream<List<TransactionListItem>> watchAll({
     TransactionType? type,
     String? personId,
+    int? year,
+    int? month,
   }) {
     final toAccounts = _db.alias(_db.accounts, 'to_accounts');
 
@@ -64,6 +66,14 @@ class TransactionsRepository {
     }
     if (personId != null) {
       query.where(_db.transactions.personId.equals(personId));
+    }
+    if (year != null && month != null) {
+      final start = DateTime(year, month);
+      final end = DateTime(year, month + 1); // Dart normalises overflow months
+      query.where(
+        _db.transactions.date.isBiggerOrEqualValue(start) &
+            _db.transactions.date.isSmallerThanValue(end),
+      );
     }
 
     return query.watch().map((rows) => [

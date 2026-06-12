@@ -28,8 +28,8 @@ class DashboardSummary {
   const DashboardSummary({
     required this.totalBalanceMinor,
     required this.todayExpenseMinor,
-    required this.monthIncomeMinor,
-    required this.monthExpenseMinor,
+    required this.last30IncomeMinor,
+    required this.last30ExpenseMinor,
     required this.owedToMeMinor,
     required this.iOweMinor,
     required this.dailyBalances,
@@ -38,8 +38,11 @@ class DashboardSummary {
 
   final int totalBalanceMinor;
   final int todayExpenseMinor;
-  final int monthIncomeMinor;
-  final int monthExpenseMinor;
+
+  /// Rolling past-30-days window (same window as the chart and the
+  /// category breakdown).
+  final int last30IncomeMinor;
+  final int last30ExpenseMinor;
 
   /// Sum of positive person balances (people who owe the user).
   final int owedToMeMinor;
@@ -53,7 +56,7 @@ class DashboardSummary {
   /// Expense totals per category over the last 30 days, largest first.
   final List<CategorySpend> categorySpending;
 
-  int get monthNetMinor => monthIncomeMinor - monthExpenseMinor;
+  int get last30NetMinor => last30IncomeMinor - last30ExpenseMinor;
 
   factory DashboardSummary.compute({
     required List<Account> accounts,
@@ -69,8 +72,8 @@ class DashboardSummary {
         accounts.fold<int>(0, (sum, a) => sum + a.balanceMinor);
 
     var todayExpense = 0;
-    var monthIncome = 0;
-    var monthExpense = 0;
+    var last30Income = 0;
+    var last30Expense = 0;
     final personNets = <String, int>{};
     final dayDeltas = <DateTime, int>{}; // calendar day -> total-balance delta
     final categoryTotals = <String?, int>{};
@@ -79,21 +82,20 @@ class DashboardSummary {
       final local = t.date.toLocal();
       final day = DateTime(local.year, local.month, local.day);
       final isToday = day == today;
-      final isThisMonth = local.year == now.year && local.month == now.month;
-      final inChartWindow = !day.isBefore(chartStart) && !day.isAfter(today);
+      final inWindow = !day.isBefore(chartStart) && !day.isAfter(today);
 
       if (t.type == TransactionType.expense) {
         if (isToday) todayExpense += t.amountMinor;
-        if (isThisMonth) monthExpense += t.amountMinor;
-        if (inChartWindow) {
+        if (inWindow) {
+          last30Expense += t.amountMinor;
           categoryTotals.update(
             t.categoryId,
             (v) => v + t.amountMinor,
             ifAbsent: () => t.amountMinor,
           );
         }
-      } else if (t.type == TransactionType.income && isThisMonth) {
-        monthIncome += t.amountMinor;
+      } else if (t.type == TransactionType.income && inWindow) {
+        last30Income += t.amountMinor;
       }
 
       final pDelta = personDeltaOf(t);
@@ -139,8 +141,8 @@ class DashboardSummary {
     return DashboardSummary(
       totalBalanceMinor: totalBalance,
       todayExpenseMinor: todayExpense,
-      monthIncomeMinor: monthIncome,
-      monthExpenseMinor: monthExpense,
+      last30IncomeMinor: last30Income,
+      last30ExpenseMinor: last30Expense,
       owedToMeMinor: owedToMe,
       iOweMinor: iOwe,
       dailyBalances: balances,

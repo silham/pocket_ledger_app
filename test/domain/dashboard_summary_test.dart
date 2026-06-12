@@ -42,15 +42,16 @@ void main() {
         updatedAt: now,
       );
 
-  test('totals, today and month figures', () {
+  test('totals, today and past-30-day figures', () {
+    // now = 11 Jun -> the 30-day window starts 13 May.
     final summary = DashboardSummary.compute(
       accounts: [account('cash', 5000_00), account('bank', 1000_00)],
       transactions: [
         tx(TransactionType.expense, 450_00), // today
         tx(TransactionType.expense, 100_00,
-            date: DateTime(2026, 6, 1)), // this month, not today
+            date: DateTime(2026, 5, 20)), // in window, not today
         tx(TransactionType.expense, 999_00,
-            date: DateTime(2026, 5, 20)), // last month
+            date: DateTime(2026, 5, 1)), // outside the window
         tx(TransactionType.income, 2000_00, date: DateTime(2026, 6, 5)),
       ],
       now: now,
@@ -58,9 +59,9 @@ void main() {
 
     expect(summary.totalBalanceMinor, 6000_00);
     expect(summary.todayExpenseMinor, 450_00);
-    expect(summary.monthExpenseMinor, 550_00);
-    expect(summary.monthIncomeMinor, 2000_00);
-    expect(summary.monthNetMinor, 1450_00);
+    expect(summary.last30ExpenseMinor, 550_00);
+    expect(summary.last30IncomeMinor, 2000_00);
+    expect(summary.last30NetMinor, 1450_00);
   });
 
   test('debt summary nets per person before splitting owed/owing', () {

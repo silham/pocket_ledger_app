@@ -56,6 +56,20 @@ final transactionListProvider =
       ref.watch(transactionsRepositoryProvider).watchAll(type: type),
 );
 
+/// Named-record key for the month-scoped transaction list.
+typedef MonthTransactionFilter = ({TransactionType? type, int year, int month});
+
+/// Transaction list scoped to a calendar month. Family key includes both the
+/// month (year + month) and an optional type filter.
+final transactionsByMonthProvider =
+    StreamProvider.family<List<TransactionListItem>, MonthTransactionFilter>(
+  (ref, q) => ref.watch(transactionsRepositoryProvider).watchAll(
+        type: q.type,
+        year: q.year,
+        month: q.month,
+      ),
+);
+
 /// Every non-deleted transaction row — the dashboard derives its stats
 /// from this in one pass.
 final allActiveTransactionsProvider = StreamProvider<List<Transaction>>((ref) {
