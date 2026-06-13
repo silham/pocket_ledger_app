@@ -294,7 +294,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
         ? CategoryType.income
         : CategoryType.expense;
     final categories =
-        await ref.read(activeCategoriesProvider(type).future);
+        await ref.read(categoriesRepositoryProvider).getActive(type);
     if (!mounted) return;
     final picked = await showSelectorSheet<Category>(
       context: context,
@@ -310,7 +310,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   }
 
   Future<void> _pickPerson() async {
-    final people = await ref.read(activePeopleProvider.future);
+    final people = await ref.read(peopleRepositoryProvider).getActive();
     if (!mounted) return;
     final picked = await showSelectorSheet<Person>(
       context: context,

@@ -8,10 +8,16 @@ class PeopleRepository {
 
   final AppDatabase _db;
 
-  Stream<List<Person>> watchActive() => (_db.select(_db.people)
+  Stream<List<Person>> watchActive() => _activeQuery().watch();
+
+  /// One-shot snapshot, for pickers that just need the current list at tap
+  /// time (avoids relying on a stream provider's first emission).
+  Future<List<Person>> getActive() => _activeQuery().get();
+
+  SimpleSelectStatement<$PeopleTable, Person> _activeQuery() =>
+      _db.select(_db.people)
         ..where((p) => p.isArchived.equals(false) & p.deletedAt.isNull())
-        ..orderBy([(p) => OrderingTerm.asc(p.name)]))
-      .watch();
+        ..orderBy([(p) => OrderingTerm.asc(p.name)]);
 
   Future<Person> create(String name, {String? phone, String? email}) {
     return _db.transaction(() async {

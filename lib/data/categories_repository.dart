@@ -9,13 +9,21 @@ class CategoriesRepository {
   final AppDatabase _db;
 
   Stream<List<Category>> watchActive(CategoryType type) =>
-      (_db.select(_db.categories)
-            ..where((c) =>
-                c.type.equalsValue(type) &
-                c.isArchived.equals(false) &
-                c.deletedAt.isNull())
-            ..orderBy([(c) => OrderingTerm.asc(c.name)]))
-          .watch();
+      _activeQuery(type).watch();
+
+  /// One-shot snapshot, for pickers that just need the current list at tap
+  /// time (avoids relying on a stream provider's first emission).
+  Future<List<Category>> getActive(CategoryType type) =>
+      _activeQuery(type).get();
+
+  SimpleSelectStatement<$CategoriesTable, Category> _activeQuery(
+          CategoryType type) =>
+      _db.select(_db.categories)
+        ..where((c) =>
+            c.type.equalsValue(type) &
+            c.isArchived.equals(false) &
+            c.deletedAt.isNull())
+        ..orderBy([(c) => OrderingTerm.asc(c.name)]);
 
   Future<Category> create({
     required String name,
