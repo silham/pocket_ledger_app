@@ -127,6 +127,7 @@ class AccountsScreen extends ConsumerWidget {
 
     return showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(

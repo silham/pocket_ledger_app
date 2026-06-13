@@ -11,6 +11,7 @@ Future<T?> showSelectorSheet<T>({
 }) {
   return showModalBottomSheet<T>(
     context: context,
+    useRootNavigator: true,
     showDragHandle: true,
     isScrollControlled: true,
     builder: (sheetContext) => SafeArea(
