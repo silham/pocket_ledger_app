@@ -71,6 +71,22 @@ class CategoriesRepository {
     });
   }
 
+  /// Toggle whether this category counts toward the overall monthly budget.
+  Future<void> setIncludedInOverall(String id, bool included) {
+    return _db.transaction(() async {
+      await (_db.update(_db.categories)..where((c) => c.id.equals(id)))
+          .write(CategoriesCompanion(
+        includeInOverallBudget: Value(included),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ));
+      await _db.logChange(
+        table: 'categories',
+        rowId: id,
+        operation: ChangeOperation.update,
+      );
+    });
+  }
+
   /// Archive, never delete: historical transactions keep their category.
   Future<void> archive(String id) {
     return _db.transaction(() async {

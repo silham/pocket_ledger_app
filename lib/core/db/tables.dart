@@ -46,6 +46,12 @@ class Categories extends Table with SyncColumns {
   TextColumn get color => text().nullable()();
   BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
   BoolColumn get isArchived => boolean().withDefault(const Constant(false))();
+
+  /// Whether this category's spending counts toward the overall monthly
+  /// budget. On by default; users can exclude categories (e.g. rent, loans)
+  /// they don't want weighed against the overall cap.
+  BoolColumn get includeInOverallBudget =>
+      boolean().withDefault(const Constant(true))();
 }
 
 @DataClassName('Person')
@@ -87,12 +93,18 @@ class Transactions extends Table with SyncColumns {
 class Budgets extends Table with SyncColumns {
   TextColumn get name => text().nullable()();
   IntColumn get amountMinor => integer().check(amountMinor.isBiggerThanValue(0))();
-  IntColumn get month => integer().check(month.isBetweenValues(1, 12))();
-  IntColumn get year => integer()();
 
-  /// Overall monthly budget has isOverall = true and categoryId = null.
-  /// SQLite UNIQUE treats NULLs as distinct, so uniqueness of the overall
-  /// budget per month is enforced in the repository, not here.
+  /// month + year are null for a *recurring default* budget that applies to
+  /// every month, and set for a *month override* that wins for that one month.
+  /// A NULL month passes the 1..12 check (CHECK only rejects FALSE), so the
+  /// same constraint guards real months without blocking defaults.
+  IntColumn get month => integer().nullable().check(month.isBetweenValues(1, 12))();
+  IntColumn get year => integer().nullable()();
+
+  /// Overall budget has isOverall = true and categoryId = null.
+  /// SQLite UNIQUE treats NULLs as distinct, so uniqueness per
+  /// (month, year, category) — including the all-NULL default rows — is
+  /// enforced in the repository, not here.
   BoolColumn get isOverall => boolean().withDefault(const Constant(false))();
   TextColumn get categoryId => text().nullable().references(Categories, #id)();
 

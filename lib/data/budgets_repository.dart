@@ -8,6 +8,17 @@ class BudgetsRepository {
 
   final AppDatabase _db;
 
+  /// Recurring default budgets (null month + year): the overall default and
+  /// any per-category defaults that apply to every month.
+  Stream<List<Budget>> watchDefaults() =>
+      (_db.select(_db.budgets)
+            ..where((b) =>
+                b.year.isNull() &
+                b.month.isNull() &
+                b.deletedAt.isNull()))
+          .watch();
+
+  /// Month-specific override budgets for the given month.
   Stream<List<Budget>> watchMonth(int year, int month) =>
       (_db.select(_db.budgets)
             ..where((b) =>
@@ -16,12 +27,12 @@ class BudgetsRepository {
                 b.deletedAt.isNull()))
           .watch();
 
-  /// Create-or-update for (year, month, category). categoryId == null means
-  /// the overall monthly budget. SQLite's unique index can't enforce
-  /// single-NULL-category rows, so the upsert here is the guard.
+  /// Create-or-update for (year, month, category). A null year + month makes a
+  /// recurring default; categoryId == null makes it the overall budget. SQLite's
+  /// unique index can't enforce single-NULL rows, so the upsert here is the guard.
   Future<void> setBudget({
-    required int year,
-    required int month,
+    int? year,
+    int? month,
     required int amountMinor,
     String? categoryId,
   }) {
@@ -29,7 +40,8 @@ class BudgetsRepository {
       // Includes soft-deleted rows: the unique (year, month, category) index
       // still sees them, so a re-created budget must resurrect the tombstone.
       final existingQuery = _db.select(_db.budgets)
-        ..where((b) => b.year.equals(year) & b.month.equals(month))
+        ..where((b) => year == null ? b.year.isNull() : b.year.equals(year))
+        ..where((b) => month == null ? b.month.isNull() : b.month.equals(month))
         ..where((b) => categoryId == null
             ? b.categoryId.isNull()
             : b.categoryId.equals(categoryId));
@@ -52,8 +64,8 @@ class BudgetsRepository {
         final budget = await _db.into(_db.budgets).insertReturning(
               BudgetsCompanion.insert(
                 amountMinor: amountMinor,
-                month: month,
-                year: year,
+                month: Value(month),
+                year: Value(year),
                 isOverall: Value(categoryId == null),
                 categoryId: Value(categoryId),
               ),

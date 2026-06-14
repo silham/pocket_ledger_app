@@ -779,6 +779,21 @@ class $CategoriesTable extends Categories
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _includeInOverallBudgetMeta =
+      const VerificationMeta('includeInOverallBudget');
+  @override
+  late final GeneratedColumn<bool> includeInOverallBudget =
+      GeneratedColumn<bool>(
+        'include_in_overall_budget',
+        aliasedName,
+        false,
+        type: DriftSqlType.bool,
+        requiredDuringInsert: false,
+        defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("include_in_overall_budget" IN (0, 1))',
+        ),
+        defaultValue: const Constant(true),
+      );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -791,6 +806,7 @@ class $CategoriesTable extends Categories
     color,
     isDefault,
     isArchived,
+    includeInOverallBudget,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -857,6 +873,15 @@ class $CategoriesTable extends Categories
         isArchived.isAcceptableOrUnknown(data['is_archived']!, _isArchivedMeta),
       );
     }
+    if (data.containsKey('include_in_overall_budget')) {
+      context.handle(
+        _includeInOverallBudgetMeta,
+        includeInOverallBudget.isAcceptableOrUnknown(
+          data['include_in_overall_budget']!,
+          _includeInOverallBudgetMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -908,6 +933,10 @@ class $CategoriesTable extends Categories
         DriftSqlType.bool,
         data['${effectivePrefix}is_archived'],
       )!,
+      includeInOverallBudget: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}include_in_overall_budget'],
+      )!,
     );
   }
 
@@ -931,6 +960,11 @@ class Category extends DataClass implements Insertable<Category> {
   final String? color;
   final bool isDefault;
   final bool isArchived;
+
+  /// Whether this category's spending counts toward the overall monthly
+  /// budget. On by default; users can exclude categories (e.g. rent, loans)
+  /// they don't want weighed against the overall cap.
+  final bool includeInOverallBudget;
   const Category({
     required this.id,
     required this.createdAt,
@@ -942,6 +976,7 @@ class Category extends DataClass implements Insertable<Category> {
     this.color,
     required this.isDefault,
     required this.isArchived,
+    required this.includeInOverallBudget,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -966,6 +1001,7 @@ class Category extends DataClass implements Insertable<Category> {
     }
     map['is_default'] = Variable<bool>(isDefault);
     map['is_archived'] = Variable<bool>(isArchived);
+    map['include_in_overall_budget'] = Variable<bool>(includeInOverallBudget);
     return map;
   }
 
@@ -985,6 +1021,7 @@ class Category extends DataClass implements Insertable<Category> {
           : Value(color),
       isDefault: Value(isDefault),
       isArchived: Value(isArchived),
+      includeInOverallBudget: Value(includeInOverallBudget),
     );
   }
 
@@ -1006,6 +1043,9 @@ class Category extends DataClass implements Insertable<Category> {
       color: serializer.fromJson<String?>(json['color']),
       isDefault: serializer.fromJson<bool>(json['isDefault']),
       isArchived: serializer.fromJson<bool>(json['isArchived']),
+      includeInOverallBudget: serializer.fromJson<bool>(
+        json['includeInOverallBudget'],
+      ),
     );
   }
   @override
@@ -1024,6 +1064,7 @@ class Category extends DataClass implements Insertable<Category> {
       'color': serializer.toJson<String?>(color),
       'isDefault': serializer.toJson<bool>(isDefault),
       'isArchived': serializer.toJson<bool>(isArchived),
+      'includeInOverallBudget': serializer.toJson<bool>(includeInOverallBudget),
     };
   }
 
@@ -1038,6 +1079,7 @@ class Category extends DataClass implements Insertable<Category> {
     Value<String?> color = const Value.absent(),
     bool? isDefault,
     bool? isArchived,
+    bool? includeInOverallBudget,
   }) => Category(
     id: id ?? this.id,
     createdAt: createdAt ?? this.createdAt,
@@ -1049,6 +1091,8 @@ class Category extends DataClass implements Insertable<Category> {
     color: color.present ? color.value : this.color,
     isDefault: isDefault ?? this.isDefault,
     isArchived: isArchived ?? this.isArchived,
+    includeInOverallBudget:
+        includeInOverallBudget ?? this.includeInOverallBudget,
   );
   Category copyWithCompanion(CategoriesCompanion data) {
     return Category(
@@ -1064,6 +1108,9 @@ class Category extends DataClass implements Insertable<Category> {
       isArchived: data.isArchived.present
           ? data.isArchived.value
           : this.isArchived,
+      includeInOverallBudget: data.includeInOverallBudget.present
+          ? data.includeInOverallBudget.value
+          : this.includeInOverallBudget,
     );
   }
 
@@ -1079,7 +1126,8 @@ class Category extends DataClass implements Insertable<Category> {
           ..write('icon: $icon, ')
           ..write('color: $color, ')
           ..write('isDefault: $isDefault, ')
-          ..write('isArchived: $isArchived')
+          ..write('isArchived: $isArchived, ')
+          ..write('includeInOverallBudget: $includeInOverallBudget')
           ..write(')'))
         .toString();
   }
@@ -1096,6 +1144,7 @@ class Category extends DataClass implements Insertable<Category> {
     color,
     isDefault,
     isArchived,
+    includeInOverallBudget,
   );
   @override
   bool operator ==(Object other) =>
@@ -1110,7 +1159,8 @@ class Category extends DataClass implements Insertable<Category> {
           other.icon == this.icon &&
           other.color == this.color &&
           other.isDefault == this.isDefault &&
-          other.isArchived == this.isArchived);
+          other.isArchived == this.isArchived &&
+          other.includeInOverallBudget == this.includeInOverallBudget);
 }
 
 class CategoriesCompanion extends UpdateCompanion<Category> {
@@ -1124,6 +1174,7 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
   final Value<String?> color;
   final Value<bool> isDefault;
   final Value<bool> isArchived;
+  final Value<bool> includeInOverallBudget;
   final Value<int> rowid;
   const CategoriesCompanion({
     this.id = const Value.absent(),
@@ -1136,6 +1187,7 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     this.color = const Value.absent(),
     this.isDefault = const Value.absent(),
     this.isArchived = const Value.absent(),
+    this.includeInOverallBudget = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CategoriesCompanion.insert({
@@ -1149,6 +1201,7 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     this.color = const Value.absent(),
     this.isDefault = const Value.absent(),
     this.isArchived = const Value.absent(),
+    this.includeInOverallBudget = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : name = Value(name),
        type = Value(type);
@@ -1163,6 +1216,7 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     Expression<String>? color,
     Expression<bool>? isDefault,
     Expression<bool>? isArchived,
+    Expression<bool>? includeInOverallBudget,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1176,6 +1230,8 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
       if (color != null) 'color': color,
       if (isDefault != null) 'is_default': isDefault,
       if (isArchived != null) 'is_archived': isArchived,
+      if (includeInOverallBudget != null)
+        'include_in_overall_budget': includeInOverallBudget,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1191,6 +1247,7 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     Value<String?>? color,
     Value<bool>? isDefault,
     Value<bool>? isArchived,
+    Value<bool>? includeInOverallBudget,
     Value<int>? rowid,
   }) {
     return CategoriesCompanion(
@@ -1204,6 +1261,8 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
       color: color ?? this.color,
       isDefault: isDefault ?? this.isDefault,
       isArchived: isArchived ?? this.isArchived,
+      includeInOverallBudget:
+          includeInOverallBudget ?? this.includeInOverallBudget,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1243,6 +1302,11 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     if (isArchived.present) {
       map['is_archived'] = Variable<bool>(isArchived.value);
     }
+    if (includeInOverallBudget.present) {
+      map['include_in_overall_budget'] = Variable<bool>(
+        includeInOverallBudget.value,
+      );
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1262,6 +1326,7 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
           ..write('color: $color, ')
           ..write('isDefault: $isDefault, ')
           ..write('isArchived: $isArchived, ')
+          ..write('includeInOverallBudget: $includeInOverallBudget, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2696,19 +2761,19 @@ class $BudgetsTable extends Budgets with TableInfo<$BudgetsTable, Budget> {
   late final GeneratedColumn<int> month = GeneratedColumn<int>(
     'month',
     aliasedName,
-    false,
+    true,
     check: () => ComparableExpr(month).isBetweenValues(1, 12),
     type: DriftSqlType.int,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _yearMeta = const VerificationMeta('year');
   @override
   late final GeneratedColumn<int> year = GeneratedColumn<int>(
     'year',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.int,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _isOverallMeta = const VerificationMeta(
     'isOverall',
@@ -2807,16 +2872,12 @@ class $BudgetsTable extends Budgets with TableInfo<$BudgetsTable, Budget> {
         _monthMeta,
         month.isAcceptableOrUnknown(data['month']!, _monthMeta),
       );
-    } else if (isInserting) {
-      context.missing(_monthMeta);
     }
     if (data.containsKey('year')) {
       context.handle(
         _yearMeta,
         year.isAcceptableOrUnknown(data['year']!, _yearMeta),
       );
-    } else if (isInserting) {
-      context.missing(_yearMeta);
     }
     if (data.containsKey('is_overall')) {
       context.handle(
@@ -2870,11 +2931,11 @@ class $BudgetsTable extends Budgets with TableInfo<$BudgetsTable, Budget> {
       month: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}month'],
-      )!,
+      ),
       year: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}year'],
-      )!,
+      ),
       isOverall: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_overall'],
@@ -2899,12 +2960,18 @@ class Budget extends DataClass implements Insertable<Budget> {
   final DateTime? deletedAt;
   final String? name;
   final int amountMinor;
-  final int month;
-  final int year;
 
-  /// Overall monthly budget has isOverall = true and categoryId = null.
-  /// SQLite UNIQUE treats NULLs as distinct, so uniqueness of the overall
-  /// budget per month is enforced in the repository, not here.
+  /// month + year are null for a *recurring default* budget that applies to
+  /// every month, and set for a *month override* that wins for that one month.
+  /// A NULL month passes the 1..12 check (CHECK only rejects FALSE), so the
+  /// same constraint guards real months without blocking defaults.
+  final int? month;
+  final int? year;
+
+  /// Overall budget has isOverall = true and categoryId = null.
+  /// SQLite UNIQUE treats NULLs as distinct, so uniqueness per
+  /// (month, year, category) — including the all-NULL default rows — is
+  /// enforced in the repository, not here.
   final bool isOverall;
   final String? categoryId;
   const Budget({
@@ -2914,8 +2981,8 @@ class Budget extends DataClass implements Insertable<Budget> {
     this.deletedAt,
     this.name,
     required this.amountMinor,
-    required this.month,
-    required this.year,
+    this.month,
+    this.year,
     required this.isOverall,
     this.categoryId,
   });
@@ -2932,8 +2999,12 @@ class Budget extends DataClass implements Insertable<Budget> {
       map['name'] = Variable<String>(name);
     }
     map['amount_minor'] = Variable<int>(amountMinor);
-    map['month'] = Variable<int>(month);
-    map['year'] = Variable<int>(year);
+    if (!nullToAbsent || month != null) {
+      map['month'] = Variable<int>(month);
+    }
+    if (!nullToAbsent || year != null) {
+      map['year'] = Variable<int>(year);
+    }
     map['is_overall'] = Variable<bool>(isOverall);
     if (!nullToAbsent || categoryId != null) {
       map['category_id'] = Variable<String>(categoryId);
@@ -2951,8 +3022,10 @@ class Budget extends DataClass implements Insertable<Budget> {
           : Value(deletedAt),
       name: name == null && nullToAbsent ? const Value.absent() : Value(name),
       amountMinor: Value(amountMinor),
-      month: Value(month),
-      year: Value(year),
+      month: month == null && nullToAbsent
+          ? const Value.absent()
+          : Value(month),
+      year: year == null && nullToAbsent ? const Value.absent() : Value(year),
       isOverall: Value(isOverall),
       categoryId: categoryId == null && nullToAbsent
           ? const Value.absent()
@@ -2972,8 +3045,8 @@ class Budget extends DataClass implements Insertable<Budget> {
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
       name: serializer.fromJson<String?>(json['name']),
       amountMinor: serializer.fromJson<int>(json['amountMinor']),
-      month: serializer.fromJson<int>(json['month']),
-      year: serializer.fromJson<int>(json['year']),
+      month: serializer.fromJson<int?>(json['month']),
+      year: serializer.fromJson<int?>(json['year']),
       isOverall: serializer.fromJson<bool>(json['isOverall']),
       categoryId: serializer.fromJson<String?>(json['categoryId']),
     );
@@ -2988,8 +3061,8 @@ class Budget extends DataClass implements Insertable<Budget> {
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
       'name': serializer.toJson<String?>(name),
       'amountMinor': serializer.toJson<int>(amountMinor),
-      'month': serializer.toJson<int>(month),
-      'year': serializer.toJson<int>(year),
+      'month': serializer.toJson<int?>(month),
+      'year': serializer.toJson<int?>(year),
       'isOverall': serializer.toJson<bool>(isOverall),
       'categoryId': serializer.toJson<String?>(categoryId),
     };
@@ -3002,8 +3075,8 @@ class Budget extends DataClass implements Insertable<Budget> {
     Value<DateTime?> deletedAt = const Value.absent(),
     Value<String?> name = const Value.absent(),
     int? amountMinor,
-    int? month,
-    int? year,
+    Value<int?> month = const Value.absent(),
+    Value<int?> year = const Value.absent(),
     bool? isOverall,
     Value<String?> categoryId = const Value.absent(),
   }) => Budget(
@@ -3013,8 +3086,8 @@ class Budget extends DataClass implements Insertable<Budget> {
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
     name: name.present ? name.value : this.name,
     amountMinor: amountMinor ?? this.amountMinor,
-    month: month ?? this.month,
-    year: year ?? this.year,
+    month: month.present ? month.value : this.month,
+    year: year.present ? year.value : this.year,
     isOverall: isOverall ?? this.isOverall,
     categoryId: categoryId.present ? categoryId.value : this.categoryId,
   );
@@ -3090,8 +3163,8 @@ class BudgetsCompanion extends UpdateCompanion<Budget> {
   final Value<DateTime?> deletedAt;
   final Value<String?> name;
   final Value<int> amountMinor;
-  final Value<int> month;
-  final Value<int> year;
+  final Value<int?> month;
+  final Value<int?> year;
   final Value<bool> isOverall;
   final Value<String?> categoryId;
   final Value<int> rowid;
@@ -3115,14 +3188,12 @@ class BudgetsCompanion extends UpdateCompanion<Budget> {
     this.deletedAt = const Value.absent(),
     this.name = const Value.absent(),
     required int amountMinor,
-    required int month,
-    required int year,
+    this.month = const Value.absent(),
+    this.year = const Value.absent(),
     this.isOverall = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.rowid = const Value.absent(),
-  }) : amountMinor = Value(amountMinor),
-       month = Value(month),
-       year = Value(year);
+  }) : amountMinor = Value(amountMinor);
   static Insertable<Budget> custom({
     Expression<String>? id,
     Expression<DateTime>? createdAt,
@@ -3158,8 +3229,8 @@ class BudgetsCompanion extends UpdateCompanion<Budget> {
     Value<DateTime?>? deletedAt,
     Value<String?>? name,
     Value<int>? amountMinor,
-    Value<int>? month,
-    Value<int>? year,
+    Value<int?>? month,
+    Value<int?>? year,
     Value<bool>? isOverall,
     Value<String?>? categoryId,
     Value<int>? rowid,
@@ -4149,6 +4220,7 @@ typedef $$CategoriesTableCreateCompanionBuilder =
       Value<String?> color,
       Value<bool> isDefault,
       Value<bool> isArchived,
+      Value<bool> includeInOverallBudget,
       Value<int> rowid,
     });
 typedef $$CategoriesTableUpdateCompanionBuilder =
@@ -4163,6 +4235,7 @@ typedef $$CategoriesTableUpdateCompanionBuilder =
       Value<String?> color,
       Value<bool> isDefault,
       Value<bool> isArchived,
+      Value<bool> includeInOverallBudget,
       Value<int> rowid,
     });
 
@@ -4265,6 +4338,11 @@ class $$CategoriesTableFilterComposer
 
   ColumnFilters<bool> get isArchived => $composableBuilder(
     column: $table.isArchived,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get includeInOverallBudget => $composableBuilder(
+    column: $table.includeInOverallBudget,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4377,6 +4455,11 @@ class $$CategoriesTableOrderingComposer
     column: $table.isArchived,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get includeInOverallBudget => $composableBuilder(
+    column: $table.includeInOverallBudget,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CategoriesTableAnnotationComposer
@@ -4417,6 +4500,11 @@ class $$CategoriesTableAnnotationComposer
 
   GeneratedColumn<bool> get isArchived => $composableBuilder(
     column: $table.isArchived,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get includeInOverallBudget => $composableBuilder(
+    column: $table.includeInOverallBudget,
     builder: (column) => column,
   );
 
@@ -4509,6 +4597,7 @@ class $$CategoriesTableTableManager
                 Value<String?> color = const Value.absent(),
                 Value<bool> isDefault = const Value.absent(),
                 Value<bool> isArchived = const Value.absent(),
+                Value<bool> includeInOverallBudget = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CategoriesCompanion(
                 id: id,
@@ -4521,6 +4610,7 @@ class $$CategoriesTableTableManager
                 color: color,
                 isDefault: isDefault,
                 isArchived: isArchived,
+                includeInOverallBudget: includeInOverallBudget,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4535,6 +4625,7 @@ class $$CategoriesTableTableManager
                 Value<String?> color = const Value.absent(),
                 Value<bool> isDefault = const Value.absent(),
                 Value<bool> isArchived = const Value.absent(),
+                Value<bool> includeInOverallBudget = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CategoriesCompanion.insert(
                 id: id,
@@ -4547,6 +4638,7 @@ class $$CategoriesTableTableManager
                 color: color,
                 isDefault: isDefault,
                 isArchived: isArchived,
+                includeInOverallBudget: includeInOverallBudget,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -5772,8 +5864,8 @@ typedef $$BudgetsTableCreateCompanionBuilder =
       Value<DateTime?> deletedAt,
       Value<String?> name,
       required int amountMinor,
-      required int month,
-      required int year,
+      Value<int?> month,
+      Value<int?> year,
       Value<bool> isOverall,
       Value<String?> categoryId,
       Value<int> rowid,
@@ -5786,8 +5878,8 @@ typedef $$BudgetsTableUpdateCompanionBuilder =
       Value<DateTime?> deletedAt,
       Value<String?> name,
       Value<int> amountMinor,
-      Value<int> month,
-      Value<int> year,
+      Value<int?> month,
+      Value<int?> year,
       Value<bool> isOverall,
       Value<String?> categoryId,
       Value<int> rowid,
@@ -6067,8 +6159,8 @@ class $$BudgetsTableTableManager
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<String?> name = const Value.absent(),
                 Value<int> amountMinor = const Value.absent(),
-                Value<int> month = const Value.absent(),
-                Value<int> year = const Value.absent(),
+                Value<int?> month = const Value.absent(),
+                Value<int?> year = const Value.absent(),
                 Value<bool> isOverall = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -6093,8 +6185,8 @@ class $$BudgetsTableTableManager
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<String?> name = const Value.absent(),
                 required int amountMinor,
-                required int month,
-                required int year,
+                Value<int?> month = const Value.absent(),
+                Value<int?> year = const Value.absent(),
                 Value<bool> isOverall = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),

@@ -110,8 +110,8 @@ void main() {
       Future<int> insertBudget() => db.into(db.budgets).insert(
             BudgetsCompanion.insert(
               amountMinor: 20000_00,
-              month: 6,
-              year: 2026,
+              month: const Value(6),
+              year: const Value(2026),
               categoryId: Value(category.id),
             ),
           );

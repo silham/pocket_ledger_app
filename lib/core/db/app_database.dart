@@ -17,13 +17,25 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.connection);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) async {
           await m.createAll();
           await seedDefaults(this);
+        },
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            // Categories gain an opt-out flag for the overall budget (on by
+            // default, so existing categories keep counting).
+            await m.addColumn(
+                categories, categories.includeInOverallBudget);
+            // Budgets.month / .year become nullable so one row can act as a
+            // recurring default. TableMigration rebuilds the table to loosen
+            // the NOT NULL constraints, copying existing rows across.
+            await m.alterTable(TableMigration(budgets));
+          }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');

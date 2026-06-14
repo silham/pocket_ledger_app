@@ -12,58 +12,157 @@ import '../../../providers/data_providers.dart';
 
 typedef MonthKey = ({int year, int month});
 
+/// Recurring default budgets (null month + year).
+final defaultBudgetsProvider = StreamProvider<List<Budget>>(
+  (ref) => ref.watch(budgetsRepositoryProvider).watchDefaults(),
+);
+
+/// Month-specific override budgets for a given month.
 final budgetsForMonthProvider =
     StreamProvider.family<List<Budget>, MonthKey>((ref, key) {
-  return ref
-      .watch(budgetsRepositoryProvider)
-      .watchMonth(key.year, key.month);
+  return ref.watch(budgetsRepositoryProvider).watchMonth(key.year, key.month);
 });
 
-class BudgetProgress {
-  const BudgetProgress({required this.budget, required this.spentMinor});
+/// Where an effective budget came from for the selected month.
+enum BudgetSource { defaultRecurring, monthOverride }
 
-  final Budget budget;
+/// A single resolved budget line: the amount in force for the month, what was
+/// spent against it, and the underlying default / override rows behind it.
+class BudgetLine {
+  const BudgetLine({
+    required this.categoryId,
+    required this.amountMinor,
+    required this.spentMinor,
+    required this.source,
+    required this.override,
+    required this.defaultBudget,
+  });
+
+  /// null = the overall budget.
+  final String? categoryId;
+  final int amountMinor;
   final int spentMinor;
+  final BudgetSource source;
 
-  double get fraction =>
-      budget.amountMinor == 0 ? 0 : spentMinor / budget.amountMinor;
+  /// This month's override row, if one exists.
+  final Budget? override;
+
+  /// The recurring default row, if one exists.
+  final Budget? defaultBudget;
+
+  bool get isOverall => categoryId == null;
+
+  double get fraction => amountMinor == 0 ? 0 : spentMinor / amountMinor;
+
+  /// The row currently in force (override wins over default).
+  Budget get effective => source == BudgetSource.monthOverride
+      ? override!
+      : defaultBudget!;
 }
 
-/// Budgets for the month with their spending, overall budget first.
-final budgetProgressProvider =
-    Provider.family<List<BudgetProgress>?, MonthKey>((ref, key) {
-  final budgets = ref.watch(budgetsForMonthProvider(key)).value;
-  final transactions = ref.watch(allActiveTransactionsProvider).value;
-  if (budgets == null || transactions == null) return null;
+class BudgetSummary {
+  const BudgetSummary({required this.overall, required this.categories});
 
-  var totalExpense = 0;
-  final byCategory = <String, int>{};
+  /// null when no overall budget (default or override) is set.
+  final BudgetLine? overall;
+  final List<BudgetLine> categories;
+}
+
+Budget? _overallOf(List<Budget> list) {
+  for (final b in list) {
+    if (b.isOverall) return b;
+  }
+  return null;
+}
+
+/// Resolves defaults + month overrides + spending into the lines the UI shows.
+final budgetSummaryProvider =
+    Provider.family<BudgetSummary?, MonthKey>((ref, key) {
+  final defaults = ref.watch(defaultBudgetsProvider).value;
+  final overrides = ref.watch(budgetsForMonthProvider(key)).value;
+  final transactions = ref.watch(allActiveTransactionsProvider).value;
+  final categories = ref.watch(allCategoriesProvider).value;
+  if (defaults == null ||
+      overrides == null ||
+      transactions == null ||
+      categories == null) {
+    return null;
+  }
+
+  final excludedFromOverall = {
+    for (final c in categories)
+      if (!c.includeInOverallBudget) c.id,
+  };
+
+  var overallSpent = 0;
+  final spentByCategory = <String, int>{};
   for (final t in transactions) {
     if (t.type != TransactionType.expense) continue;
     final local = t.date.toLocal();
     if (local.year != key.year || local.month != key.month) continue;
-    totalExpense += t.amountMinor;
-    if (t.categoryId != null) {
-      byCategory.update(t.categoryId!, (v) => v + t.amountMinor,
+    final cid = t.categoryId;
+    if (cid == null || !excludedFromOverall.contains(cid)) {
+      overallSpent += t.amountMinor;
+    }
+    if (cid != null) {
+      spentByCategory.update(cid, (v) => v + t.amountMinor,
           ifAbsent: () => t.amountMinor);
     }
   }
 
-  final list = [
-    for (final b in budgets)
-      BudgetProgress(
-        budget: b,
-        spentMinor:
-            b.isOverall ? totalExpense : (byCategory[b.categoryId] ?? 0),
-      ),
-  ]..sort((a, b) {
-      if (a.budget.isOverall != b.budget.isOverall) {
-        return a.budget.isOverall ? -1 : 1;
-      }
-      return b.fraction.compareTo(a.fraction);
-    });
-  return list;
+  BudgetLine? buildLine({
+    required String? categoryId,
+    required Budget? override,
+    required Budget? defaultBudget,
+    required int spentMinor,
+  }) {
+    final effective = override ?? defaultBudget;
+    if (effective == null) return null;
+    return BudgetLine(
+      categoryId: categoryId,
+      amountMinor: effective.amountMinor,
+      spentMinor: spentMinor,
+      source: override != null
+          ? BudgetSource.monthOverride
+          : BudgetSource.defaultRecurring,
+      override: override,
+      defaultBudget: defaultBudget,
+    );
+  }
+
+  final overall = buildLine(
+    categoryId: null,
+    override: _overallOf(overrides),
+    defaultBudget: _overallOf(defaults),
+    spentMinor: overallSpent,
+  );
+
+  final defaultByCat = {
+    for (final b in defaults)
+      if (!b.isOverall && b.categoryId != null) b.categoryId!: b,
+  };
+  final overrideByCat = {
+    for (final b in overrides)
+      if (!b.isOverall && b.categoryId != null) b.categoryId!: b,
+  };
+
+  final categoryLines = <BudgetLine>[];
+  for (final cid in {...defaultByCat.keys, ...overrideByCat.keys}) {
+    final line = buildLine(
+      categoryId: cid,
+      override: overrideByCat[cid],
+      defaultBudget: defaultByCat[cid],
+      spentMinor: spentByCategory[cid] ?? 0,
+    );
+    if (line != null) categoryLines.add(line);
+  }
+  categoryLines.sort((a, b) => b.fraction.compareTo(a.fraction));
+
+  return BudgetSummary(overall: overall, categories: categoryLines);
 });
+
+/// Which scope an edit targets in the editor sheet.
+enum _Scope { thisMonth, defaultRecurring }
 
 class BudgetsScreen extends ConsumerStatefulWidget {
   const BudgetsScreen({super.key});
@@ -79,22 +178,13 @@ class _BudgetsScreenState extends ConsumerState<BudgetsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final progress = ref.watch(budgetProgressProvider(_key));
+    final summary = ref.watch(budgetSummaryProvider(_key));
     final categories =
         ref.watch(allCategoriesProvider).value ?? const <Category>[];
     final byId = {for (final c in categories) c.id: c};
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Budgets'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'Set budget',
-            onPressed: () => _showForm(context),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Budgets')),
       body: Column(
         children: [
           _MonthSelector(
@@ -102,124 +192,403 @@ class _BudgetsScreenState extends ConsumerState<BudgetsScreen> {
             onChanged: (m) => setState(() => _month = m),
           ),
           Expanded(
-            child: switch (progress) {
-              null => const Center(child: CircularProgressIndicator()),
-              [] => const _EmptyState(),
-              final list => ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    for (final p in list)
-                      _BudgetCard(
-                        progress: p,
-                        category: byId[p.budget.categoryId],
-                        onEdit: () => _showForm(context, existing: p.budget),
-                        onDelete: () async {
-                          await ref
-                              .read(budgetsRepositoryProvider)
-                              .delete(p.budget.id);
-                          showAppSnackBar('Budget removed');
-                        },
+            child: summary == null
+                ? const Center(child: CircularProgressIndicator())
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    children: [
+                      _SectionHeader(
+                        title: 'Overall',
+                        actionLabel:
+                            summary.overall == null ? 'Set' : null,
+                        onAction: () => _showOverallSheet(line: null),
                       ),
-                  ],
-                ),
-            },
+                      if (summary.overall == null)
+                        _UnsetCard(
+                          label: 'No overall budget',
+                          hint: 'Set a monthly limit across all spending',
+                          onTap: () => _showOverallSheet(line: null),
+                        )
+                      else
+                        _BudgetCard(
+                          line: summary.overall!,
+                          category: null,
+                          onTap: () =>
+                              _showOverallSheet(line: summary.overall),
+                          onRemove: () => _removeLine(summary.overall!),
+                        ),
+                      const SizedBox(height: 20),
+                      _SectionHeader(
+                        title: 'Categories',
+                        actionLabel: 'Add',
+                        onAction: () => _showCategorySheet(line: null),
+                      ),
+                      if (summary.categories.isEmpty)
+                        const _UnsetCard(
+                          label: 'No category budgets',
+                          hint: 'Add a per-category limit',
+                          onTap: null,
+                        )
+                      else
+                        for (final line in summary.categories)
+                          _BudgetCard(
+                            line: line,
+                            category: byId[line.categoryId],
+                            onTap: () => _showCategorySheet(line: line),
+                            onRemove: () => _removeLine(line),
+                          ),
+                    ],
+                  ),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _showForm(BuildContext context, {Budget? existing}) async {
-    final amountController = TextEditingController(
-      text: existing == null ? '' : minorToInputString(existing.amountMinor),
+  Future<void> _removeLine(BudgetLine line) async {
+    await ref.read(budgetsRepositoryProvider).delete(line.effective.id);
+    showAppSnackBar(
+      line.source == BudgetSource.monthOverride
+          ? "This month's budget removed"
+          : 'Default budget removed',
     );
-    // null sentinel = overall budget.
-    String? categoryId = existing?.categoryId;
-    final expenseCategories =
-        await ref.read(activeCategoriesProvider(CategoryType.expense).future);
-    if (!context.mounted) return;
+  }
 
-    return showModalBottomSheet<void>(
+  // ---- Overall editor -----------------------------------------------------
+
+  Future<void> _showOverallSheet({BudgetLine? line}) async {
+    var scope = (line?.override != null)
+        ? _Scope.thisMonth
+        : _Scope.defaultRecurring;
+    final amountController = TextEditingController();
+
+    Budget? rowFor(_Scope s) =>
+        s == _Scope.thisMonth ? line?.override : line?.defaultBudget;
+    void syncAmount() {
+      final row = rowFor(scope);
+      amountController.text =
+          row == null ? '' : minorToInputString(row.amountMinor);
+    }
+
+    syncAmount();
+
+    await showModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (sheetContext, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            24,
-            0,
-            24,
-            24 + MediaQuery.of(sheetContext).viewInsets.bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                existing == null ? 'Set budget' : 'Edit budget',
-                style: Theme.of(sheetContext).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                DateFormat('MMMM yyyy').format(_month),
-                style: Theme.of(sheetContext).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
-              if (existing == null)
-                DropdownMenu<String?>(
-                  initialSelection: categoryId,
-                  label: const Text('Scope'),
-                  expandedInsets: EdgeInsets.zero,
-                  dropdownMenuEntries: [
-                    const DropdownMenuEntry<String?>(
-                      value: null,
-                      label: 'Overall (all spending)',
-                    ),
-                    for (final c in expenseCategories)
-                      DropdownMenuEntry<String?>(
-                        value: c.id,
-                        label: c.name,
-                        leadingIcon: Icon(categoryIcon(c.icon)),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            24, 0, 24, 24 + MediaQuery.of(sheetContext).viewInsets.bottom),
+        child: StatefulBuilder(
+          builder: (sheetContext, setSheetState) => SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Overall monthly budget',
+                    style: Theme.of(sheetContext).textTheme.titleMedium),
+                const SizedBox(height: 16),
+                _ScopeSelector(
+                  scope: scope,
+                  monthLabel: DateFormat('MMM yyyy').format(_month),
+                  onChanged: (s) => setSheetState(() {
+                    scope = s;
+                    syncAmount();
+                  }),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: amountController,
+                  autofocus: true,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: scope == _Scope.thisMonth
+                        ? "This month's limit"
+                        : 'Default monthly limit',
+                    prefixText: 'Rs. ',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const _IncludedCategoriesTile(),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (rowFor(scope) != null)
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () async {
+                            await ref
+                                .read(budgetsRepositoryProvider)
+                                .delete(rowFor(scope)!.id);
+                            if (sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
+                            showAppSnackBar('Budget removed');
+                          },
+                          child: const Text('Remove'),
+                        ),
                       ),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => _saveScoped(
+                          sheetContext,
+                          scope: scope,
+                          amountText: amountController.text,
+                          categoryId: null,
+                        ),
+                        child: const Text('Save'),
+                      ),
+                    ),
                   ],
-                  onSelected: (v) => categoryId = v,
                 ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: amountController,
-                autofocus: true,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: 'Monthly limit',
-                  prefixText: 'Rs. ',
-                ),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () async {
-                  final amount = parseAmountToMinor(amountController.text);
-                  if (amount == null) {
-                    showAppSnackBar('Enter a valid amount');
-                    return;
-                  }
-                  await ref.read(budgetsRepositoryProvider).setBudget(
-                        year: _month.year,
-                        month: _month.month,
-                        amountMinor: amount,
-                        categoryId:
-                            existing == null ? categoryId : existing.categoryId,
-                      );
-                  if (sheetContext.mounted) Navigator.pop(sheetContext);
-                  showAppSnackBar('Budget saved');
-                },
-                child: const Text('Save'),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  // ---- Category editor ----------------------------------------------------
+
+  Future<void> _showCategorySheet({BudgetLine? line}) async {
+    final expenseCategories =
+        await ref.read(activeCategoriesProvider(CategoryType.expense).future);
+    if (!mounted) return;
+    if (line == null && expenseCategories.isEmpty) {
+      showAppSnackBar('Add an expense category first');
+      return;
+    }
+
+    var categoryId = line?.categoryId ?? expenseCategories.first.id;
+    var scope = (line?.override != null)
+        ? _Scope.thisMonth
+        : _Scope.defaultRecurring;
+    final amountController = TextEditingController();
+
+    Budget? rowFor(_Scope s) =>
+        s == _Scope.thisMonth ? line?.override : line?.defaultBudget;
+    void syncAmount() {
+      final row = rowFor(scope);
+      amountController.text =
+          row == null ? '' : minorToInputString(row.amountMinor);
+    }
+
+    syncAmount();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            24, 0, 24, 24 + MediaQuery.of(sheetContext).viewInsets.bottom),
+        child: StatefulBuilder(
+          builder: (sheetContext, setSheetState) => SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(line == null ? 'Add category budget' : 'Category budget',
+                    style: Theme.of(sheetContext).textTheme.titleMedium),
+                const SizedBox(height: 16),
+                if (line == null)
+                  DropdownMenu<String>(
+                    initialSelection: categoryId,
+                    label: const Text('Category'),
+                    expandedInsets: EdgeInsets.zero,
+                    dropdownMenuEntries: [
+                      for (final c in expenseCategories)
+                        DropdownMenuEntry<String>(
+                          value: c.id,
+                          label: c.name,
+                          leadingIcon: Icon(categoryIcon(c.icon)),
+                        ),
+                    ],
+                    onSelected: (v) {
+                      if (v != null) categoryId = v;
+                    },
+                  ),
+                if (line == null) const SizedBox(height: 16),
+                _ScopeSelector(
+                  scope: scope,
+                  monthLabel: DateFormat('MMM yyyy').format(_month),
+                  onChanged: (s) => setSheetState(() {
+                    scope = s;
+                    syncAmount();
+                  }),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: amountController,
+                  autofocus: true,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: scope == _Scope.thisMonth
+                        ? "This month's limit"
+                        : 'Default monthly limit',
+                    prefixText: 'Rs. ',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (rowFor(scope) != null)
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () async {
+                            await ref
+                                .read(budgetsRepositoryProvider)
+                                .delete(rowFor(scope)!.id);
+                            if (sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
+                            showAppSnackBar('Budget removed');
+                          },
+                          child: const Text('Remove'),
+                        ),
+                      ),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => _saveScoped(
+                          sheetContext,
+                          scope: scope,
+                          amountText: amountController.text,
+                          categoryId: categoryId,
+                        ),
+                        child: const Text('Save'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveScoped(
+    BuildContext sheetContext, {
+    required _Scope scope,
+    required String amountText,
+    required String? categoryId,
+  }) async {
+    final amount = parseAmountToMinor(amountText);
+    if (amount == null) {
+      showAppSnackBar('Enter a valid amount');
+      return;
+    }
+    await ref.read(budgetsRepositoryProvider).setBudget(
+          year: scope == _Scope.thisMonth ? _month.year : null,
+          month: scope == _Scope.thisMonth ? _month.month : null,
+          amountMinor: amount,
+          categoryId: categoryId,
+        );
+    if (sheetContext.mounted) Navigator.pop(sheetContext);
+    showAppSnackBar('Budget saved');
+  }
+}
+
+class _ScopeSelector extends StatelessWidget {
+  const _ScopeSelector({
+    required this.scope,
+    required this.monthLabel,
+    required this.onChanged,
+  });
+
+  final _Scope scope;
+  final String monthLabel;
+  final ValueChanged<_Scope> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<_Scope>(
+      segments: [
+        const ButtonSegment(
+          value: _Scope.defaultRecurring,
+          label: Text('Every month'),
+          icon: Icon(Icons.repeat),
+        ),
+        ButtonSegment(
+          value: _Scope.thisMonth,
+          label: Text(monthLabel),
+          icon: const Icon(Icons.event),
+        ),
+      ],
+      selected: {scope},
+      onSelectionChanged: (s) => onChanged(s.first),
+    );
+  }
+}
+
+/// Live list of expense categories with a toggle for overall-budget inclusion.
+class _IncludedCategoriesTile extends ConsumerWidget {
+  const _IncludedCategoriesTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final categories =
+        ref.watch(activeCategoriesProvider(CategoryType.expense)).value ??
+            const <Category>[];
+    final excluded = categories.where((c) => !c.includeInOverallBudget).length;
+
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        title: const Text('Included categories'),
+        subtitle: Text(excluded == 0
+            ? 'All spending counts toward the overall budget'
+            : '$excluded excluded'),
+        children: [
+          for (final c in categories)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: c.includeInOverallBudget,
+              title: Text(c.name),
+              secondary: Icon(categoryIcon(c.icon),
+                  color: colorFromHex(c.color)),
+              onChanged: (v) => ref
+                  .read(categoriesRepositoryProvider)
+                  .setIncludedInOverall(c.id, v),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.title,
+    required this.onAction,
+    this.actionLabel,
+  });
+
+  final String title;
+  final String? actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        if (actionLabel != null)
+          TextButton.icon(
+            onPressed: onAction,
+            icon: const Icon(Icons.add, size: 18),
+            label: Text(actionLabel!),
+          ),
+      ],
     );
   }
 }
@@ -239,8 +608,7 @@ class _MonthSelector extends StatelessWidget {
         children: [
           IconButton(
             icon: const Icon(Icons.chevron_left),
-            onPressed: () =>
-                onChanged(DateTime(month.year, month.month - 1)),
+            onPressed: () => onChanged(DateTime(month.year, month.month - 1)),
           ),
           Text(
             DateFormat('MMMM yyyy').format(month),
@@ -248,8 +616,7 @@ class _MonthSelector extends StatelessWidget {
           ),
           IconButton(
             icon: const Icon(Icons.chevron_right),
-            onPressed: () =>
-                onChanged(DateTime(month.year, month.month + 1)),
+            onPressed: () => onChanged(DateTime(month.year, month.month + 1)),
           ),
         ],
       ),
@@ -257,24 +624,46 @@ class _MonthSelector extends StatelessWidget {
   }
 }
 
-class _BudgetCard extends StatelessWidget {
-  const _BudgetCard({
-    required this.progress,
-    required this.category,
-    required this.onEdit,
-    required this.onDelete,
-  });
+class _UnsetCard extends StatelessWidget {
+  const _UnsetCard({required this.label, required this.hint, this.onTap});
 
-  final BudgetProgress progress;
-  final Category? category;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final String label;
+  final String hint;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final budget = progress.budget;
-    final fraction = progress.fraction;
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(Icons.add_chart, color: colorScheme.onSurfaceVariant),
+        title: Text(label),
+        subtitle: Text(hint),
+        trailing: onTap == null ? null : const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+}
+
+class _BudgetCard extends StatelessWidget {
+  const _BudgetCard({
+    required this.line,
+    required this.category,
+    required this.onTap,
+    required this.onRemove,
+  });
+
+  final BudgetLine line;
+  final Category? category;
+  final VoidCallback onTap;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final fraction = line.fraction;
     final percent = (fraction * 100).round();
 
     final Color barColor;
@@ -282,7 +671,7 @@ class _BudgetCard extends StatelessWidget {
     if (fraction > 1) {
       barColor = colorScheme.error;
       statusText =
-          'Over by ${formatMinor(progress.spentMinor - budget.amountMinor)}';
+          'Over by ${formatMinor(line.spentMinor - line.amountMinor)}';
     } else if (fraction >= 0.8) {
       barColor = Colors.orange.shade800;
       statusText = 'Almost there';
@@ -290,14 +679,13 @@ class _BudgetCard extends StatelessWidget {
       barColor = Colors.green.shade700;
     }
 
-    final title = budget.isOverall
-        ? 'Overall'
-        : category?.name ?? 'Unknown category';
+    final title =
+        line.isOverall ? 'Overall' : category?.name ?? 'Unknown category';
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(top: 8),
       child: InkWell(
-        onTap: onEdit,
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -306,7 +694,7 @@ class _BudgetCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  if (!budget.isOverall)
+                  if (!line.isOverall)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: Icon(
@@ -319,6 +707,8 @@ class _BudgetCard extends StatelessWidget {
                     child: Text(title,
                         style: Theme.of(context).textTheme.titleSmall),
                   ),
+                  _SourceChip(source: line.source),
+                  const SizedBox(width: 8),
                   Text('$percent%',
                       style: Theme.of(context)
                           .textTheme
@@ -326,10 +716,10 @@ class _BudgetCard extends StatelessWidget {
                           ?.copyWith(color: barColor)),
                   PopupMenuButton<String>(
                     onSelected: (action) =>
-                        action == 'delete' ? onDelete() : onEdit(),
+                        action == 'remove' ? onRemove() : onTap(),
                     itemBuilder: (context) => const [
                       PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      PopupMenuItem(value: 'delete', child: Text('Remove')),
+                      PopupMenuItem(value: 'remove', child: Text('Remove')),
                     ],
                   ),
                 ],
@@ -346,8 +736,8 @@ class _BudgetCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '${formatMinor(progress.spentMinor)} of '
-                '${formatMinor(budget.amountMinor)}'
+                '${formatMinor(line.spentMinor)} of '
+                '${formatMinor(line.amountMinor)}'
                 '${statusText == null ? '' : ' · $statusText'}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
@@ -361,31 +751,30 @@ class _BudgetCard extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+class _SourceChip extends StatelessWidget {
+  const _SourceChip({required this.source});
+
+  final BudgetSource source;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.pie_chart_outline,
-            size: 64,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(height: 12),
-          Text('No budgets for this month',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
-          Text(
-            'Tap + to set an overall or category limit',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
-        ],
+    final isOverride = source == BudgetSource.monthOverride;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isOverride
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        isOverride ? 'This month' : 'Default',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: isOverride
+                  ? colorScheme.onPrimaryContainer
+                  : colorScheme.onSurfaceVariant,
+            ),
       ),
     );
   }
