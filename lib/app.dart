@@ -6,8 +6,7 @@ import 'package:home_widget/home_widget.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widget/home_widget_service.dart';
-import 'domain/dashboard/dashboard_summary.dart';
-import 'features/dashboard/dashboard_providers.dart';
+import 'features/more/budgets/budgets_screen.dart';
 import 'providers/settings_providers.dart';
 
 /// App-wide messenger so flows can show snackbars after popping their
@@ -47,13 +46,14 @@ class _PocketLedgerAppState extends ConsumerState<PocketLedgerApp> {
 
   void _handleWidgetUri(Uri? uri) {
     if (uri == null) return;
-    // pocketledger://add  ->  open the quick-add transaction flow.
-    if (uri.host == HomeWidgetService.addTransactionUri.host) {
-      // Defer until the router has a navigator (cold-start taps fire early).
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _router.push(AppRoutes.add);
-      });
-    }
+    // Defer until the router has a navigator (cold-start taps fire early).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (uri.host == HomeWidgetService.addTransactionUri.host) {
+        _router.push(AppRoutes.add); // pocketledger://add
+      } else if (uri.host == HomeWidgetService.budgetsUri.host) {
+        _router.go(AppRoutes.moreBudgets); // pocketledger://budgets
+      }
+    });
   }
 
   @override
@@ -64,12 +64,14 @@ class _PocketLedgerAppState extends ConsumerState<PocketLedgerApp> {
 
   @override
   Widget build(BuildContext context) {
-    // Keep the home-screen widget's "spent today" figure in sync. Fires on the
-    // first computed summary (loading -> value) and every later DB write.
-    ref.listen<DashboardSummary?>(dashboardSummaryProvider, (_, summary) {
+    // Keep the home-screen budget widget in sync with this month's overall
+    // budget. Fires on the first computed summary and every later DB write.
+    final now = DateTime.now();
+    final monthKey = (year: now.year, month: now.month);
+    ref.listen<BudgetSummary?>(budgetSummaryProvider(monthKey), (_, summary) {
       if (summary != null) {
-        HomeWidgetService.updateDailySpending(
-          todayExpenseMinor: summary.todayExpenseMinor,
+        HomeWidgetService.updateBudget(
+          overall: summary.overall,
           now: DateTime.now(),
         );
       }

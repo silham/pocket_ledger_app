@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="spending_widget_title">Spent today</string>
-    <string name="spending_widget_add">+ Add transaction</string>
-    <string name="spending_widget_description">See today\'s spending and quickly add a transaction.</string>
+    <string name="budget_widget_title">Budget</string>
+    <string name="budget_widget_add">+ Add transaction</string>
+    <string name="budget_widget_description">See this month\'s budget and quickly add a transaction.</string>
 </resources>
