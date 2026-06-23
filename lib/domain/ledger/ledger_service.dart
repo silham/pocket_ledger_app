@@ -65,28 +65,52 @@ class LedgerService {
 
   Future<Transaction> createTransaction(TransactionDraft draft) async {
     _validate(draft);
+    return _db.transaction(() => _insertDraft(draft));
+  }
+
+  /// Creates several transactions atomically — used by the split-expense flow,
+  /// where one paid total fans out into a `lend` per other participant plus an
+  /// `expense` for the payer's own share. Every row, its balance deltas, and
+  /// its change_log entries commit or roll back together.
+  Future<List<Transaction>> createBatch(List<TransactionDraft> drafts) async {
+    if (drafts.isEmpty) {
+      throw LedgerValidationException('batch needs at least one transaction');
+    }
+    for (final draft in drafts) {
+      _validate(draft);
+    }
     return _db.transaction(() async {
-      final row = await _db.into(_db.transactions).insertReturning(
-            TransactionsCompanion.insert(
-              type: draft.type,
-              amountMinor: draft.amountMinor,
-              date: draft.date.toUtc(),
-              accountId: draft.accountId,
-              toAccountId: Value(draft.toAccountId),
-              categoryId: Value(draft.categoryId),
-              personId: Value(draft.personId),
-              note: Value(draft.note),
-              isNegativeAdjustment: Value(draft.isNegativeAdjustment),
-            ),
-          );
-      await _applyDeltas(accountDeltasOf(row));
-      await _db.logChange(
-        table: 'transactions',
-        rowId: row.id,
-        operation: ChangeOperation.insert,
-      );
-      return row;
+      final rows = <Transaction>[];
+      for (final draft in drafts) {
+        rows.add(await _insertDraft(draft));
+      }
+      return rows;
     });
+  }
+
+  /// Inserts one validated draft and applies its effects. Must run inside an
+  /// open `_db.transaction(...)`; callers own the transaction boundary.
+  Future<Transaction> _insertDraft(TransactionDraft draft) async {
+    final row = await _db.into(_db.transactions).insertReturning(
+          TransactionsCompanion.insert(
+            type: draft.type,
+            amountMinor: draft.amountMinor,
+            date: draft.date.toUtc(),
+            accountId: draft.accountId,
+            toAccountId: Value(draft.toAccountId),
+            categoryId: Value(draft.categoryId),
+            personId: Value(draft.personId),
+            note: Value(draft.note),
+            isNegativeAdjustment: Value(draft.isNegativeAdjustment),
+          ),
+        );
+    await _applyDeltas(accountDeltasOf(row));
+    await _db.logChange(
+      table: 'transactions',
+      rowId: row.id,
+      operation: ChangeOperation.insert,
+    );
+    return row;
   }
 
   /// Edit = reverse the old row's balance effects, apply the new ones,

@@ -9,9 +9,11 @@ import '../../core/db/app_database.dart';
 import '../../core/money/money.dart';
 import '../../core/widgets/selector_sheet.dart';
 import '../../domain/ledger/ledger_service.dart';
+import '../../domain/ledger/split.dart';
 import '../../domain/models/enums.dart';
 import '../../providers/data_providers.dart';
 import '../../providers/database_provider.dart';
+import 'split_people_sheet.dart';
 
 class AddTransactionScreen extends ConsumerStatefulWidget {
   const AddTransactionScreen({
@@ -51,6 +53,11 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   var _reduceBalance = false; // adjustment direction
   var _saving = false;
   String? _amountError;
+
+  // Split-expense state (new transactions only; expense type only).
+  var _split = false;
+  var _includeMe = true;
+  final List<_SplitRow> _participants = [];
 
   bool get _isEditing => widget.editId != null;
 
@@ -162,10 +169,20 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               value: _toAccount?.name,
               onTap: () => _pickAccount(accounts, forDestination: true),
             ),
-          if (_type.usesCategory)
+          if (_type == TransactionType.expense && !_isEditing)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.call_split_outlined),
+              title: const Text('Split this expense'),
+              subtitle: const Text('Share the cost with people in the apartment'),
+              value: _split,
+              onChanged: (on) => setState(() => _split = on),
+            ),
+          if (_split) ..._buildSplitEditor(),
+          if (_type.usesCategory && !(_split && !_includeMe))
             _PickerTile(
               icon: Icons.category_outlined,
-              label: 'Category',
+              label: _split ? 'Category (your share)' : 'Category',
               value: _category?.name ?? 'Optional',
               onTap: _pickCategory,
             ),
@@ -225,6 +242,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               }
               if (!_type.involvesPerson) _person = null;
               if (_type != TransactionType.transfer) _toAccount = null;
+              if (_type != TransactionType.expense) _split = false;
             }),
           ),
       ],
@@ -238,12 +256,13 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       style: Theme.of(context).textTheme.headlineMedium,
       decoration: InputDecoration(
-        labelText: 'Amount',
+        labelText: _split ? 'Total paid' : 'Amount',
         prefixText: 'Rs. ',
         errorText: _amountError,
       ),
       onChanged: (_) {
-        if (_amountError != null) setState(() => _amountError = null);
+        // Re-render the live split preview as the total changes.
+        setState(() => _amountError = null);
       },
     );
   }
@@ -269,6 +288,234 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
             setState(() => _reduceBalance = selection.single),
       ),
     );
+  }
+
+  // ----------------------------------------------------------- split editor
+
+  /// Aligned (owner, share) data for the current split inputs. Index 0 is
+  /// "me" (owner == null) when [_includeMe]; the rest follow [_participants]
+  /// order. Returns null when there isn't enough input yet; throws
+  /// [SplitException] when the custom amounts are inconsistent.
+  ({List<Person?> owners, List<int> shares})? _computeSplit(int? totalMinor) {
+    if (totalMinor == null || _participants.isEmpty) return null;
+    final owners = <Person?>[];
+    final parts = <SplitParticipant>[];
+    if (_includeMe) {
+      owners.add(null);
+      parts.add(const SplitParticipant());
+    }
+    for (final row in _participants) {
+      owners.add(row.person);
+      parts.add(SplitParticipant(
+        personId: row.person.id,
+        customMinor: row.customMinor,
+      ));
+    }
+    return (owners: owners, shares: computeSplitShares(totalMinor, parts));
+  }
+
+  List<Widget> _buildSplitEditor() {
+    final total = parseAmountToMinor(_amountController.text);
+    return [
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        secondary: const Icon(Icons.person_pin_circle_outlined),
+        title: const Text('Include my share'),
+        subtitle: const Text('Counts your portion as an expense'),
+        value: _includeMe,
+        onChanged: (on) => setState(() => _includeMe = on),
+      ),
+      Card(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          children: [
+            if (_participants.isEmpty)
+              const ListTile(
+                leading: Icon(Icons.group_outlined),
+                title: Text('No one added yet'),
+                subtitle: Text('Add the people who shared this expense'),
+              )
+            else
+              ..._buildParticipantTiles(total),
+            ListTile(
+              leading: const Icon(Icons.group_add_outlined),
+              title: Text(
+                _participants.isEmpty ? 'Add people' : 'Add / edit people',
+              ),
+              onTap: _addParticipants,
+            ),
+          ],
+        ),
+      ),
+      _buildSplitPreview(total),
+      const SizedBox(height: 8),
+    ];
+  }
+
+  List<Widget> _buildParticipantTiles(int? total) {
+    final shareById = <String, int>{};
+    try {
+      final split = _computeSplit(total);
+      if (split != null) {
+        for (var i = 0; i < split.owners.length; i++) {
+          final owner = split.owners[i];
+          if (owner != null) shareById[owner.id] = split.shares[i];
+        }
+      }
+    } on SplitException {
+      // Shares unknown for now; the preview line surfaces the error.
+    }
+    return [
+      for (final row in _participants)
+        ListTile(
+          leading: const Icon(Icons.person_outline),
+          title: Text(row.person.name),
+          subtitle: Text(row.customMinor != null ? 'Custom share' : 'Equal share'),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                shareById.containsKey(row.person.id)
+                    ? formatMinor(shareById[row.person.id]!)
+                    : '—',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              IconButton(
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: 'Set exact share',
+                onPressed: () => _editShare(row),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: 'Remove',
+                onPressed: () => setState(() => _participants.remove(row)),
+              ),
+            ],
+          ),
+        ),
+    ];
+  }
+
+  Widget _buildSplitPreview(int? total) {
+    final colorScheme = Theme.of(context).colorScheme;
+    String message;
+    Color? color;
+    if (total == null) {
+      message = 'Enter the total to see each share';
+    } else if (_participants.isEmpty) {
+      message = 'Add people to split with';
+    } else {
+      try {
+        final split = _computeSplit(total)!;
+        var myShare = 0;
+        var othersTotal = 0;
+        var owe = 0;
+        for (var i = 0; i < split.owners.length; i++) {
+          if (split.owners[i] == null) {
+            myShare += split.shares[i];
+          } else {
+            othersTotal += split.shares[i];
+            owe++;
+          }
+        }
+        message = [
+          'You paid ${formatMinor(total)}',
+          '$owe ${owe == 1 ? 'person owes' : 'people owe'} you '
+              '${formatMinor(othersTotal)}',
+          if (_includeMe) 'your share ${formatMinor(myShare)}',
+        ].join(' · ');
+      } on SplitException catch (e) {
+        message = e.message;
+        color = colorScheme.error;
+      }
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      child: Text(
+        message,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: color ?? colorScheme.onSurfaceVariant,
+            ),
+      ),
+    );
+  }
+
+  Future<void> _addParticipants() async {
+    final people = await ref.read(peopleRepositoryProvider).getActive();
+    if (!mounted) return;
+    final current = {for (final r in _participants) r.person};
+    final chosen = await showSplitPeopleSheet(
+      context: context,
+      people: people,
+      selected: current,
+      onAddPerson: _createPersonDialog,
+    );
+    if (chosen == null || !mounted) return;
+    setState(() {
+      // Keep existing rows (with their custom amounts) for still-selected
+      // people; add rows for newly selected ones; drop removed ones.
+      final next = <_SplitRow>[];
+      for (final person in chosen) {
+        _SplitRow? existing;
+        for (final r in _participants) {
+          if (r.person.id == person.id) {
+            existing = r;
+            break;
+          }
+        }
+        next.add(existing ?? _SplitRow(person));
+      }
+      _participants
+        ..clear()
+        ..addAll(next);
+    });
+  }
+
+  Future<void> _editShare(_SplitRow row) async {
+    final controller = TextEditingController(
+      text: row.customMinor != null ? minorToInputString(row.customMinor!) : '',
+    );
+    final result = await showDialog<_ShareEdit>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text("${row.person.name}'s share"),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Exact amount',
+            prefixText: 'Rs. ',
+            helperText: 'Leave blank to split equally',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, const _ShareEdit.clear()),
+            child: const Text('Split equally'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isEmpty) {
+                Navigator.pop(dialogContext, const _ShareEdit.clear());
+                return;
+              }
+              final minor = parseAmountToMinor(text);
+              if (minor == null) {
+                showAppSnackBar('Enter a valid amount');
+                return;
+              }
+              Navigator.pop(dialogContext, _ShareEdit.set(minor));
+            },
+            child: const Text('Set'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() => row.customMinor = result.minor);
   }
 
   Future<void> _pickAccount(List<Account> accounts,
@@ -394,6 +641,10 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       showAppSnackBar('Pick an account first');
       return;
     }
+    if (_split) {
+      await _saveSplit(amountMinor, account);
+      return;
+    }
     if (_type == TransactionType.transfer && _toAccount == null) {
       showAppSnackBar('Pick a destination account');
       return;
@@ -437,6 +688,78 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       setState(() => _saving = false);
     }
   }
+
+  /// Fans one paid total out into a `lend` per other participant plus an
+  /// `expense` for the user's own share, written atomically via [createBatch].
+  Future<void> _saveSplit(int totalMinor, Account account) async {
+    if (_participants.isEmpty) {
+      showAppSnackBar('Add at least one person to split with');
+      return;
+    }
+    final List<Person?> owners;
+    final List<int> shares;
+    try {
+      final split = _computeSplit(totalMinor)!;
+      owners = split.owners;
+      shares = split.shares;
+    } on SplitException catch (e) {
+      showAppSnackBar(e.message);
+      return;
+    }
+
+    final note = _noteController.text.trim().isEmpty
+        ? null
+        : _noteController.text.trim();
+    final drafts = <TransactionDraft>[];
+    for (var i = 0; i < owners.length; i++) {
+      final share = shares[i];
+      if (share <= 0) continue; // amounts must be positive; skip zero shares
+      final owner = owners[i];
+      drafts.add(TransactionDraft(
+        type: owner == null ? TransactionType.expense : TransactionType.lend,
+        amountMinor: share,
+        date: _date,
+        accountId: account.id,
+        categoryId: owner == null ? _category?.id : null,
+        personId: owner?.id,
+        note: note,
+      ));
+    }
+    if (drafts.isEmpty) {
+      showAppSnackBar('Nothing to record — every share is zero');
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      await ref.read(ledgerServiceProvider).createBatch(drafts);
+      HapticFeedback.mediumImpact();
+      showAppSnackBar('Split saved — ${drafts.length} entries');
+      if (mounted) context.pop();
+    } on LedgerValidationException catch (e) {
+      showAppSnackBar(e.message);
+      setState(() => _saving = false);
+    } catch (_) {
+      showAppSnackBar('Could not save — please try again');
+      setState(() => _saving = false);
+    }
+  }
+}
+
+/// A person in the split, plus an optional locked exact share. Mutable so the
+/// editor can toggle a custom amount in place.
+class _SplitRow {
+  _SplitRow(this.person);
+  final Person person;
+  int? customMinor;
+}
+
+/// Result of the per-person "set exact share" dialog: [minor] is null to clear
+/// the override (back to an equal split), or the locked amount.
+class _ShareEdit {
+  const _ShareEdit.clear() : minor = null;
+  const _ShareEdit.set(this.minor);
+  final int? minor;
 }
 
 class _PickerTile extends StatelessWidget {
