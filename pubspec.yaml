@@ -47,6 +47,12 @@ dependencies:
   share_plus: ^13.1.0
   home_widget: ^0.9.3
 
+  # In-app self-updater: checks GitHub Releases on launch and installs the
+  # newer APK without going through the Play Store. See lib/core/update/.
+  http: ^1.2.2
+  package_info_plus: ^10.1.0
+  ota_update: ^6.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

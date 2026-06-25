@@ -5,6 +5,8 @@ import 'package:home_widget/home_widget.dart';
 
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/update/update_dialog.dart';
+import 'core/update/update_service.dart';
 import 'core/widget/home_widget_service.dart';
 import 'features/more/budgets/budgets_screen.dart';
 import 'providers/settings_providers.dart';
@@ -35,6 +37,20 @@ class _PocketLedgerAppState extends ConsumerState<PocketLedgerApp> {
   void initState() {
     super.initState();
     _initHomeWidget();
+    _checkForUpdate();
+  }
+
+  /// On launch, ask GitHub Releases whether a newer APK exists and, if so,
+  /// prompt to install it. Silent on any failure so it never blocks startup.
+  Future<void> _checkForUpdate() async {
+    final update = await const UpdateService().checkForUpdate();
+    if (update == null || !mounted) return;
+    // Defer so the router's navigator/overlay exists (same reason as the
+    // post-frame deferral in _handleWidgetUri).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _router.routerDelegate.navigatorKey.currentContext;
+      if (ctx != null) showUpdateDialog(ctx, update);
+    });
   }
 
   /// Listen for taps on the home-screen widget. A tap arrives either as the
