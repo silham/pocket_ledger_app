@@ -4,7 +4,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:ota_update/ota_update.dart';
 
 import '../../app.dart' show showAppSnackBar;
 import 'update_service.dart';
@@ -36,16 +35,17 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       _downloading = true;
       _progress = 0;
     });
-    const UpdateService().download(widget.update.apkUrl).listen(
-      (event) {
-        if (event.status == OtaStatus.DOWNLOADING) {
-          final pct = double.tryParse(event.value ?? '');
-          if (pct != null && mounted) setState(() => _progress = pct / 100);
-        }
+    const UpdateService().downloadAndInstall(widget.update.apkUrl).listen(
+      (fraction) {
+        if (mounted) setState(() => _progress = fraction);
       },
       onError: (_) {
         if (mounted) Navigator.of(context).pop();
         showAppSnackBar('Update failed. Please try again later.');
+      },
+      onDone: () {
+        // The OS installer is now in front; close our dialog.
+        if (mounted) Navigator.of(context).pop();
       },
     );
   }

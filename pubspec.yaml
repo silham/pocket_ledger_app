@@ -51,7 +51,7 @@ dependencies:
   # newer APK without going through the Play Store. See lib/core/update/.
   http: ^1.2.2
   package_info_plus: ^10.1.0
-  ota_update: ^6.0.0
+  open_filex: ^4.5.0
 
 dev_dependencies:
   flutter_test:

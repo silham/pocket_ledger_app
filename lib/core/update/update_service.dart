@@ -6,10 +6,12 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:ota_update/ota_update.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// A newer release than the one currently installed.
 class AppUpdate {
@@ -69,10 +71,32 @@ class UpdateService {
     }
   }
 
-  /// Downloads the APK and hands off to Android's package installer. Emits
-  /// progress events; the OS install screen takes over once the file lands.
-  Stream<OtaEvent> download(String apkUrl) =>
-      OtaUpdate().execute(apkUrl, destinationFilename: 'pocket-ledger-update.apk');
+  /// Downloads the APK to a temp file, emitting progress as a 0.0–1.0 fraction,
+  /// then opens it so Android's package installer takes over. Yields the final
+  /// 1.0 right before launching the installer. Throws on network/IO failure so
+  /// the caller can surface an error.
+  Stream<double> downloadAndInstall(String apkUrl) async* {
+    final response =
+        await http.Client().send(http.Request('GET', Uri.parse(apkUrl)));
+    final total = response.contentLength ?? 0;
+
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/pocket-ledger-update.apk');
+    final sink = file.openWrite();
+    var received = 0;
+    try {
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0) yield received / total;
+      }
+    } finally {
+      await sink.close();
+    }
+
+    yield 1;
+    await OpenFilex.open(file.path);
+  }
 
   static String _stripV(String tag) =>
       tag.startsWith('v') ? tag.substring(1) : tag;
