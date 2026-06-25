@@ -101,8 +101,9 @@ GoRouter createAppRouter() => GoRouter(
       path: AppRoutes.add,
       pageBuilder: (context, state) {
         // '/add?edit=<id>' opens the form prefilled for editing.
-        // '/add?type=<name>&person=<id>&amount=<minor>' preselects values
-        // (used by the person-ledger settle flow).
+        // '/add?type=<name>&person=<id>&account=<id>&amount=<minor>'
+        // preselects values (used by the person-ledger settle flow and the
+        // accounts-screen "adjust balance" action).
         final params = state.uri.queryParameters;
         return MaterialPage(
           fullscreenDialog: true,
@@ -110,6 +111,7 @@ GoRouter createAppRouter() => GoRouter(
             editId: params['edit'],
             initialType: TransactionType.values.asNameMap()[params['type']],
             initialPersonId: params['person'],
+            initialAccountId: params['account'],
             initialAmountMinor: int.tryParse(params['amount'] ?? ''),
           ),
         );
