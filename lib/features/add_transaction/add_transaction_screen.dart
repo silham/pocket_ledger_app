@@ -250,21 +250,76 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   }
 
   Widget _buildAmountField() {
-    return TextField(
-      controller: _amountController,
-      autofocus: true,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      style: Theme.of(context).textTheme.headlineMedium,
-      decoration: InputDecoration(
-        labelText: _split ? 'Total paid' : 'Amount',
-        prefixText: 'Rs. ',
-        errorText: _amountError,
-      ),
-      onChanged: (_) {
-        // Re-render the live split preview as the total changes.
-        setState(() => _amountError = null);
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _amountController,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: Theme.of(context).textTheme.headlineMedium,
+          decoration: InputDecoration(
+            labelText: _split ? 'Total paid' : 'Amount',
+            prefixText: 'Rs. ',
+            errorText: _amountError,
+            // Show the running total whenever the field holds an expression.
+            helperText: _amountPreview(),
+          ),
+          onChanged: (_) {
+            // Re-render the math preview and live split preview as input changes.
+            setState(() => _amountError = null);
+          },
+        ),
+        const SizedBox(height: 8),
+        _buildMathToolbar(),
+      ],
     );
+  }
+
+  /// "= Rs. 150.00" while the amount field holds a valid arithmetic expression
+  /// (e.g. "100+50"); null for a plain number or invalid input, so the helper
+  /// line stays hidden in the common case.
+  String? _amountPreview() {
+    final text = _amountController.text;
+    if (!text.contains(RegExp(r'[+\-*/]'))) return null;
+    final minor = parseAmountToMinor(text);
+    return minor == null ? null : '= ${formatMinor(minor)}';
+  }
+
+  /// Operator keys for the amount field — the numeric keypad has no
+  /// + − × ÷, so we insert them at the cursor ourselves.
+  Widget _buildMathToolbar() {
+    Widget key(String label, String op) => Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: OutlinedButton(
+              onPressed: () => _insertOperator(op),
+              child: Text(label, style: Theme.of(context).textTheme.titleLarge),
+            ),
+          ),
+        );
+    return Row(
+      children: [
+        key('+', '+'),
+        key('−', '-'),
+        key('×', '*'),
+        key('÷', '/'),
+      ],
+    );
+  }
+
+  void _insertOperator(String op) {
+    final value = _amountController.value;
+    final sel = value.selection;
+    // No/!valid selection (e.g. field never focused) -> append at the end.
+    final start = sel.start < 0 ? value.text.length : sel.start;
+    final end = sel.end < 0 ? value.text.length : sel.end;
+    final newText = value.text.replaceRange(start, end, op);
+    _amountController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + op.length),
+    );
+    setState(() => _amountError = null);
   }
 
   Widget _buildAdjustmentDirection() {
