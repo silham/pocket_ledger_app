@@ -48,7 +48,7 @@ class _ValueTile extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 value,
-                style: textTheme.titleMedium
+                style: textTheme.titleLarge
                     ?.copyWith(color: color, fontWeight: FontWeight.w600),
               ),
             ),
@@ -164,7 +164,7 @@ class DebtTile extends ConsumerWidget {
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
                 child: Text(formatMinor(amount),
-                    style: textTheme.titleMedium
+                    style: textTheme.titleLarge
                         ?.copyWith(color: color, fontWeight: FontWeight.w600)),
               ),
             ),
