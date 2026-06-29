@@ -142,4 +142,28 @@ void main() {
     expect(summary.categorySpending[1].amountMinor, 150_00);
     expect(summary.categorySpending[2].categoryId, isNull);
   });
+
+  test('daily expenses bucket spending per day over the last 30 days', () {
+    final summary = DashboardSummary.compute(
+      accounts: [account('cash', 0)],
+      transactions: [
+        tx(TransactionType.expense, 200_00), // today
+        tx(TransactionType.expense, 50_00), // today again -> same bucket
+        tx(TransactionType.expense, 100_00,
+            date: now.subtract(const Duration(days: 5))),
+        tx(TransactionType.expense, 999_00,
+            date: now.subtract(const Duration(days: 40))), // outside window
+        tx(TransactionType.income, 500_00), // not an expense
+      ],
+      now: now,
+    );
+
+    final days = summary.dailyExpenses;
+    expect(days, hasLength(30));
+    expect(days.last.amountMinor, 250_00, reason: 'today = 200 + 50');
+    expect(days[24].amountMinor, 100_00, reason: '5 days ago');
+    expect(days.first.amountMinor, 0, reason: 'no spend that day');
+    expect(days.fold<int>(0, (s, d) => s + d.amountMinor), 350_00,
+        reason: 'the 999 is outside the window');
+  });
 }

@@ -21,6 +21,14 @@ class DailyBalance {
   final int balanceMinor;
 }
 
+/// One day's total for a single metric (e.g. expense), for the bar chart.
+class DailyAmount {
+  const DailyAmount({required this.day, required this.amountMinor});
+
+  final DateTime day; // local calendar day (midnight)
+  final int amountMinor;
+}
+
 /// Everything the dashboard shows, computed in one pass over the
 /// active accounts and non-deleted transactions. Pure: no I/O, no clock —
 /// callers pass `now` (which also makes tests deterministic).
@@ -33,6 +41,7 @@ class DashboardSummary {
     required this.owedToMeMinor,
     required this.iOweMinor,
     required this.dailyBalances,
+    required this.dailyExpenses,
     required this.categorySpending,
   });
 
@@ -52,6 +61,9 @@ class DashboardSummary {
 
   /// Last 30 days, oldest first.
   final List<DailyBalance> dailyBalances;
+
+  /// Per-day expense totals over the last 30 days, oldest first.
+  final List<DailyAmount> dailyExpenses;
 
   /// Expense totals per category over the last 30 days, largest first.
   final List<CategorySpend> categorySpending;
@@ -76,6 +88,7 @@ class DashboardSummary {
     var last30Expense = 0;
     final personNets = <String, int>{};
     final dayDeltas = <DateTime, int>{}; // calendar day -> total-balance delta
+    final dayExpenses = <DateTime, int>{}; // calendar day -> expense total
     final categoryTotals = <String?, int>{};
 
     for (final t in transactions) {
@@ -88,6 +101,8 @@ class DashboardSummary {
         if (isToday) todayExpense += t.amountMinor;
         if (inWindow) {
           last30Expense += t.amountMinor;
+          dayExpenses.update(day, (v) => v + t.amountMinor,
+              ifAbsent: () => t.amountMinor);
           categoryTotals.update(
             t.categoryId,
             (v) => v + t.amountMinor,
@@ -133,6 +148,15 @@ class DashboardSummary {
       running -= dayDeltas[day] ?? 0; // step back to the previous day's close
     }
 
+    // Materialize the 30-day expense buckets, oldest first (0 where no spend).
+    final expenses = [
+      for (var i = 0; i < 30; i++)
+        DailyAmount(
+          day: chartStart.add(Duration(days: i)),
+          amountMinor: dayExpenses[chartStart.add(Duration(days: i))] ?? 0,
+        ),
+    ];
+
     final spending = [
       for (final entry in categoryTotals.entries)
         CategorySpend(categoryId: entry.key, amountMinor: entry.value),
@@ -146,6 +170,7 @@ class DashboardSummary {
       owedToMeMinor: owedToMe,
       iOweMinor: iOwe,
       dailyBalances: balances,
+      dailyExpenses: expenses,
       categorySpending: spending,
     );
   }
