@@ -53,6 +53,9 @@ dependencies:
   package_info_plus: ^10.1.0
   open_filex: ^4.5.0
 
+  # Picks the JSON backup file to restore from. See ImportService.
+  file_picker: ^3.0.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

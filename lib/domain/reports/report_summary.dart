@@ -3,7 +3,7 @@ import '../dashboard/dashboard_summary.dart' show CategorySpend;
 import '../ledger/deltas.dart';
 import '../models/enums.dart';
 
-/// Figures for the Reports screen, for one calendar month. Pure.
+/// Figures for the Reports screen, for an arbitrary date range. Pure.
 class ReportSummary {
   const ReportSummary({
     required this.incomeMinor,
@@ -16,19 +16,21 @@ class ReportSummary {
   final int incomeMinor;
   final int expenseMinor;
 
-  /// Expense per category in the month, largest first.
+  /// Expense per category in the range, largest first.
   final List<CategorySpend> categorySpending;
 
-  /// Current (not month-scoped) debt position.
+  /// Current (not range-scoped) debt position.
   final int owedToMeMinor;
   final int iOweMinor;
 
   int get netMinor => incomeMinor - expenseMinor;
 
+  /// Sums income/expense for transactions dated in `[start, end)` — [start]
+  /// inclusive, [end] exclusive. Both are local-time boundaries.
   factory ReportSummary.compute({
     required List<Transaction> transactions,
-    required int year,
-    required int month,
+    required DateTime start,
+    required DateTime end,
   }) {
     var income = 0;
     var expense = 0;
@@ -37,11 +39,11 @@ class ReportSummary {
 
     for (final t in transactions) {
       final local = t.date.toLocal();
-      final inMonth = local.year == year && local.month == month;
+      final inRange = !local.isBefore(start) && local.isBefore(end);
 
-      if (inMonth && t.type == TransactionType.income) {
+      if (inRange && t.type == TransactionType.income) {
         income += t.amountMinor;
-      } else if (inMonth && t.type == TransactionType.expense) {
+      } else if (inRange && t.type == TransactionType.expense) {
         expense += t.amountMinor;
         byCategory.update(t.categoryId, (v) => v + t.amountMinor,
             ifAbsent: () => t.amountMinor);

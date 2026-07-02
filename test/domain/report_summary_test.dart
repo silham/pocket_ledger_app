@@ -27,17 +27,17 @@ void main() {
         updatedAt: base,
       );
 
-  test('scopes income/expense/categories to the requested month', () {
+  test('scopes income/expense/categories to the requested range', () {
     final report = ReportSummary.compute(
       transactions: [
         tx(TransactionType.income, 5000_00),
         tx(TransactionType.expense, 1200_00, category: 'food'),
         tx(TransactionType.expense, 300_00, category: 'food',
-            date: DateTime(2026, 5, 30)), // previous month
+            date: DateTime(2026, 5, 30)), // before the range
         tx(TransactionType.expense, 800_00, category: 'travel'),
       ],
-      year: 2026,
-      month: 6,
+      start: DateTime(2026, 6, 1),
+      end: DateTime(2026, 7, 1),
     );
 
     expect(report.incomeMinor, 5000_00);
@@ -47,7 +47,7 @@ void main() {
     expect(report.categorySpending.first.categoryId, 'food');
   });
 
-  test('debt position uses all history, not just the month', () {
+  test('debt position uses all history, not just the range', () {
     final report = ReportSummary.compute(
       transactions: [
         tx(TransactionType.lend, 1000_00, person: 'a',
@@ -55,8 +55,8 @@ void main() {
         tx(TransactionType.borrow, 400_00, person: 'b',
             date: DateTime(2026, 2, 1)),
       ],
-      year: 2026,
-      month: 6,
+      start: DateTime(2026, 6, 1),
+      end: DateTime(2026, 7, 1),
     );
 
     expect(report.owedToMeMinor, 1000_00);

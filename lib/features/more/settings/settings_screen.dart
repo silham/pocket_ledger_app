@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../app.dart';
 import '../../../data/export_service.dart';
+import '../../../data/import_service.dart';
 import '../../../providers/data_providers.dart';
 import '../../../providers/database_provider.dart';
 import '../../../providers/settings_providers.dart';
@@ -57,6 +60,12 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => _exportBackup(ref),
           ),
           ListTile(
+            leading: const Icon(Icons.download_outlined),
+            title: const Text('Restore from backup (JSON)'),
+            subtitle: const Text('Replace all data with a backup file'),
+            onTap: () => _restoreBackup(context, ref),
+          ),
+          ListTile(
             leading: const Icon(Icons.fact_check_outlined),
             title: const Text('Verify balances'),
             subtitle: const Text('Recompute every account from its history'),
@@ -87,6 +96,55 @@ class SettingsScreen extends ConsumerWidget {
       ));
     } catch (e) {
       showAppSnackBar('Export failed: $e');
+    }
+  }
+
+  Future<void> _restoreBackup(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Restore from backup?'),
+        content: const Text(
+          'This replaces everything in the app — accounts, transactions, '
+          'people, categories and budgets — with the contents of the backup '
+          "file. Your current data is deleted and this can't be undone.\n\n"
+          'Export a backup first if you might need your current data.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true,
+      );
+      if (picked == null) return; // User cancelled the picker.
+
+      final bytes = picked.files.single.bytes;
+      if (bytes == null) {
+        showAppSnackBar('Could not read that file.');
+        return;
+      }
+
+      final result = await ImportService(ref.read(databaseProvider))
+          .restoreJson(utf8.decode(bytes));
+      showAppSnackBar('Restored ${result.total} records from backup');
+    } on ImportException catch (e) {
+      showAppSnackBar(e.message);
+    } catch (e) {
+      showAppSnackBar('Restore failed: $e');
     }
   }
 

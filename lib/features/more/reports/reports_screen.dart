@@ -9,16 +9,17 @@ import '../../../core/utils/color_hex.dart';
 import '../../../domain/reports/report_summary.dart';
 import '../../../providers/data_providers.dart';
 
-typedef _MonthKey = ({int year, int month});
+/// [start] inclusive, [end] exclusive — both local-time day boundaries.
+typedef _RangeKey = ({DateTime start, DateTime end});
 
 final _reportProvider =
-    Provider.family<ReportSummary?, _MonthKey>((ref, key) {
+    Provider.autoDispose.family<ReportSummary?, _RangeKey>((ref, key) {
   final transactions = ref.watch(allActiveTransactionsProvider).value;
   if (transactions == null) return null;
   return ReportSummary.compute(
     transactions: transactions,
-    year: key.year,
-    month: key.month,
+    start: key.start,
+    end: key.end,
   );
 });
 
@@ -30,12 +31,24 @@ class ReportsScreen extends ConsumerStatefulWidget {
 }
 
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
-  late DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  // Inclusive day boundaries the user sees; [_end] is made exclusive for the
+  // query by adding one day.
+  late DateTime _start;
+  late DateTime _end;
+
+  @override
+  void initState() {
+    super.initState();
+    final r = _thisMonth();
+    _start = r.$1;
+    _end = r.$2;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final report = ref
-        .watch(_reportProvider((year: _month.year, month: _month.month)));
+    final endExclusive = DateTime(_end.year, _end.month, _end.day + 1);
+    final report =
+        ref.watch(_reportProvider((start: _start, end: endExclusive)));
     final accounts = ref.watch(activeAccountsProvider).value;
     final categories =
         ref.watch(allCategoriesProvider).value ?? const <Category>[];
@@ -48,7 +61,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                _monthSelector(context),
+                _rangeSelector(context),
                 const SizedBox(height: 8),
                 _MonthSummaryCard(report: report),
                 const SizedBox(height: 12),
@@ -66,26 +79,90 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     );
   }
 
-  Widget _monthSelector(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _rangeSelector(BuildContext context) {
+    final fmt = DateFormat('d MMM yyyy');
+    final label = _start == _end
+        ? fmt.format(_start)
+        : '${fmt.format(_start)} – ${fmt.format(_end)}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        IconButton(
-          icon: const Icon(Icons.chevron_left),
-          onPressed: () => setState(
-              () => _month = DateTime(_month.year, _month.month - 1)),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.date_range),
+          label: Text(label),
+          onPressed: () => _pickCustomRange(context),
         ),
-        Text(
-          DateFormat('MMMM yyyy').format(_month),
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        IconButton(
-          icon: const Icon(Icons.chevron_right),
-          onPressed: () => setState(
-              () => _month = DateTime(_month.year, _month.month + 1)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            _presetChip('This month', _thisMonth),
+            _presetChip('Last month', _lastMonth),
+            _presetChip('Last 3 months', _last3Months),
+            _presetChip('This year', _thisYear),
+          ],
         ),
       ],
     );
+  }
+
+  Widget _presetChip(String label, (DateTime, DateTime) Function() range) {
+    final r = range();
+    final selected = _start == r.$1 && _end == r.$2;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => setState(() {
+        _start = r.$1;
+        _end = r.$2;
+      }),
+    );
+  }
+
+  Future<void> _pickCustomRange(BuildContext context) async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      initialDateRange: DateTimeRange(start: _start, end: _end),
+      firstDate: DateTime(now.year - 10),
+      lastDate: DateTime(now.year + 1, 12, 31),
+    );
+    if (picked == null) return;
+    setState(() {
+      _start = DateUtils.dateOnly(picked.start);
+      _end = DateUtils.dateOnly(picked.end);
+    });
+  }
+
+  // Preset ranges as (inclusive start, inclusive end) day pairs.
+  (DateTime, DateTime) _thisMonth() {
+    final now = DateTime.now();
+    return (
+      DateTime(now.year, now.month, 1),
+      DateTime(now.year, now.month + 1, 0),
+    );
+  }
+
+  (DateTime, DateTime) _lastMonth() {
+    final now = DateTime.now();
+    return (
+      DateTime(now.year, now.month - 1, 1),
+      DateTime(now.year, now.month, 0),
+    );
+  }
+
+  (DateTime, DateTime) _last3Months() {
+    final now = DateTime.now();
+    return (
+      DateTime(now.year, now.month - 2, 1),
+      DateTime(now.year, now.month + 1, 0),
+    );
+  }
+
+  (DateTime, DateTime) _thisYear() {
+    final now = DateTime.now();
+    return (DateTime(now.year, 1, 1), DateTime(now.year, 12, 31));
   }
 }
 
@@ -120,8 +197,7 @@ class _MonthSummaryCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Month summary',
-                style: Theme.of(context).textTheme.titleSmall),
+            Text('Summary', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
             row('Income', formatMinor(report.incomeMinor),
                 color: Colors.green.shade700),
