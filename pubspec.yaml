@@ -54,7 +54,9 @@ dependencies:
   open_filex: ^4.5.0
 
   # Picks the JSON backup file to restore from. See ImportService.
-  file_picker: ^3.0.4
+  # file_selector (first-party) is used instead of file_picker because the
+  # latter pins win32 ^5.x, which conflicts with share_plus's win32 ^6.x.
+  file_selector: ^1.0.0
 
 dev_dependencies:
   flutter_test:

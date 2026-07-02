@@ -1,7 +1,6 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -125,21 +124,12 @@ class SettingsScreen extends ConsumerWidget {
     if (confirmed != true) return;
 
     try {
-      final picked = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['json'],
-        withData: true,
-      );
-      if (picked == null) return; // User cancelled the picker.
-
-      final bytes = picked.files.single.bytes;
-      if (bytes == null) {
-        showAppSnackBar('Could not read that file.');
-        return;
-      }
+      const typeGroup = XTypeGroup(label: 'JSON backup', extensions: ['json']);
+      final file = await openFile(acceptedTypeGroups: [typeGroup]);
+      if (file == null) return; // User cancelled the picker.
 
       final result = await ImportService(ref.read(databaseProvider))
-          .restoreJson(utf8.decode(bytes));
+          .restoreJson(await file.readAsString());
       showAppSnackBar('Restored ${result.total} records from backup');
     } on ImportException catch (e) {
       showAppSnackBar(e.message);
