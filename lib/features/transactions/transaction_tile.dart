@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/money/money.dart';
 import '../../core/router/app_router.dart';
@@ -9,9 +10,13 @@ import '../../domain/models/enums.dart';
 /// One transaction row. Used by the history list (wrapped in a Dismissible)
 /// and the dashboard's recent-transactions section. Tapping opens edit.
 class TransactionTile extends StatelessWidget {
-  const TransactionTile({super.key, required this.item});
+  const TransactionTile({super.key, required this.item, this.showDate = false});
 
   final TransactionListItem item;
+
+  /// Prefixes the subtitle with the transaction date — used on the person
+  /// ledger so each lend/borrow shows when it happened.
+  final bool showDate;
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +58,11 @@ class TransactionTile extends StatelessWidget {
     final note = t.note;
     final base =
         t.type == TransactionType.transfer ? t.type.label : item.accountName;
-    return note == null || note.isEmpty ? base : '$base · $note';
+    return [
+      if (showDate) DateFormat('d MMM yyyy').format(t.date.toLocal()),
+      base,
+      if (note != null && note.isNotEmpty) note,
+    ].join(' · ');
   }
 
   String _amountText() {

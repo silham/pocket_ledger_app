@@ -6,6 +6,7 @@ import '../../app.dart';
 import '../../core/db/app_database.dart';
 import '../../core/money/money.dart';
 import '../../core/router/app_router.dart';
+import '../../data/transactions_repository.dart';
 import '../../domain/models/enums.dart';
 import '../../providers/data_providers.dart';
 import '../transactions/transaction_tile.dart';
@@ -26,6 +27,8 @@ class PersonLedgerScreen extends ConsumerWidget {
     if (person == null || net == null || history == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
+    final split = splitDebtHistory(history);
 
     return Scaffold(
       appBar: AppBar(
@@ -72,8 +75,11 @@ class PersonLedgerScreen extends ConsumerWidget {
                     ),
               ),
             )
-          else
-            for (final item in history) TransactionTile(item: item),
+          else ...[
+            for (final item in split.unsettled)
+              TransactionTile(item: item, showDate: true),
+            if (split.settled.isNotEmpty) _SettledHistory(items: split.settled),
+          ],
         ],
       ),
     );
@@ -148,6 +154,33 @@ class _BalanceHeader extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Collapsed run of transactions that already netted back to zero. Kept out of
+/// the way so only the open balance is front-and-centre, but still reachable.
+class _SettledHistory extends StatelessWidget {
+  const _SettledHistory({required this.items});
+
+  final List<TransactionListItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = items.length;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: ExpansionTile(
+        leading: const Icon(Icons.check_circle_outline),
+        title: const Text('Settled history'),
+        subtitle: Text('$count fully repaid '
+            '${count == 1 ? 'transaction' : 'transactions'}'),
+        childrenPadding: EdgeInsets.zero,
+        children: [
+          for (final item in items) TransactionTile(item: item, showDate: true),
+        ],
       ),
     );
   }
