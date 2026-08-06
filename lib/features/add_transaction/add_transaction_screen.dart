@@ -59,6 +59,11 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   var _includeMe = true;
   final List<_SplitRow> _participants = [];
 
+  // "Someone paid for me" state (new expenses only): the payer covered the
+  // whole cost, so it records a borrow from them plus the matching expense.
+  // Mutually exclusive with _split; reuses _person for the payer.
+  var _paidByOther = false;
+
   bool get _isEditing => widget.editId != null;
 
   @override
@@ -169,15 +174,34 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               value: _toAccount?.name,
               onTap: () => _pickAccount(accounts, forDestination: true),
             ),
-          if (_type == TransactionType.expense && !_isEditing)
+          if (_type == TransactionType.expense && !_isEditing) ...[
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.volunteer_activism_outlined),
+              title: const Text('Someone paid for me'),
+              subtitle: const Text('They covered the whole cost — I owe them'),
+              value: _paidByOther,
+              onChanged: (on) => setState(() {
+                _paidByOther = on;
+                if (on) _split = false;
+                if (!on) _person = null;
+              }),
+            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(Icons.call_split_outlined),
               title: const Text('Split this expense'),
               subtitle: const Text('Share the cost with people in the apartment'),
               value: _split,
-              onChanged: (on) => setState(() => _split = on),
+              onChanged: (on) => setState(() {
+                _split = on;
+                if (on) {
+                  _paidByOther = false;
+                  _person = null;
+                }
+              }),
             ),
+          ],
           if (_split) ..._buildSplitEditor(),
           if (_type.usesCategory && !(_split && !_includeMe))
             _PickerTile(
@@ -186,13 +210,14 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               value: _category?.name ?? 'Optional',
               onTap: _pickCategory,
             ),
-          if (_type.involvesPerson)
+          if (_type.involvesPerson || _paidByOther)
             _PickerTile(
               icon: Icons.person_outline,
-              label: 'Person',
+              label: _paidByOther ? 'Paid by' : 'Person',
               value: _person?.name,
               onTap: _pickPerson,
             ),
+          if (_paidByOther) _buildPaidByOtherPreview(),
           if (_type == TransactionType.adjustment) _buildAdjustmentDirection(),
           _PickerTile(
             icon: Icons.event_outlined,
@@ -240,9 +265,12 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
                   _category!.type.name != _type.name) {
                 _category = null;
               }
-              if (!_type.involvesPerson) _person = null;
+              if (_type != TransactionType.expense) {
+                _split = false;
+                _paidByOther = false;
+              }
+              if (!_type.involvesPerson && !_paidByOther) _person = null;
               if (_type != TransactionType.transfer) _toAccount = null;
-              if (_type != TransactionType.expense) _split = false;
             }),
           ),
       ],
@@ -259,7 +287,11 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           style: Theme.of(context).textTheme.headlineMedium,
           decoration: InputDecoration(
-            labelText: _split ? 'Total paid' : 'Amount',
+            labelText: switch ((_split, _paidByOther)) {
+              (true, _) => 'Total paid',
+              (_, true) => 'Amount they paid',
+              _ => 'Amount',
+            },
             prefixText: 'Rs. ',
             errorText: _amountError,
             // Show the running total whenever the field holds an expression.
@@ -341,6 +373,32 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
         selected: {_reduceBalance},
         onSelectionChanged: (selection) =>
             setState(() => _reduceBalance = selection.single),
+      ),
+    );
+  }
+
+  /// Spells out the two rows the "someone paid for me" toggle will write, so
+  /// the net-zero effect on the account isn't a surprise.
+  Widget _buildPaidByOtherPreview() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final amountMinor = parseAmountToMinor(_amountController.text);
+    final name = _person?.name;
+    final String message;
+    if (amountMinor == null) {
+      message = 'Enter what they paid';
+    } else if (name == null) {
+      message = 'Pick who paid';
+    } else {
+      message = 'Borrow ${formatMinor(amountMinor)} from $name '
+          '+ an expense of the same amount · your account balance stays put';
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      child: Text(
+        message,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
       ),
     );
   }
@@ -616,7 +674,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
     if (!mounted) return;
     final picked = await showSelectorSheet<Person>(
       context: context,
-      title: 'Person',
+      title: _paidByOther ? 'Paid by' : 'Person',
       items: people,
       tileBuilder: (sheetContext, person) => ListTile(
         leading: const Icon(Icons.person_outline),
@@ -700,6 +758,10 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       await _saveSplit(amountMinor, account);
       return;
     }
+    if (_paidByOther) {
+      await _savePaidByOther(amountMinor, account);
+      return;
+    }
     if (_type == TransactionType.transfer && _toAccount == null) {
       showAppSnackBar('Pick a destination account');
       return;
@@ -734,6 +796,54 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       HapticFeedback.mediumImpact();
       showAppSnackBar(
           '${_type.label} ${_isEditing ? 'updated' : 'saved'}');
+      if (mounted) context.pop();
+    } on LedgerValidationException catch (e) {
+      showAppSnackBar(e.message);
+      setState(() => _saving = false);
+    } catch (_) {
+      showAppSnackBar('Could not save — please try again');
+      setState(() => _saving = false);
+    }
+  }
+
+  /// Records "someone bought this for me": a `borrow` from the payer plus the
+  /// matching `expense`, written atomically via [createBatch]. The two rows
+  /// cancel out on the account (the money never passed through it), leaving
+  /// the debt on the payer's ledger and the spend in categories and budgets.
+  Future<void> _savePaidByOther(int amountMinor, Account account) async {
+    final person = _person;
+    if (person == null) {
+      showAppSnackBar('Pick who paid');
+      return;
+    }
+    final typed = _noteController.text.trim();
+    final note = typed.isEmpty ? null : typed;
+    final drafts = [
+      TransactionDraft(
+        type: TransactionType.borrow,
+        amountMinor: amountMinor,
+        date: _date,
+        accountId: account.id,
+        personId: person.id,
+        // Without a note the person ledger would just read "Borrow"; say why.
+        note: note ?? 'Paid on my behalf',
+      ),
+      TransactionDraft(
+        type: TransactionType.expense,
+        amountMinor: amountMinor,
+        date: _date,
+        accountId: account.id,
+        categoryId: _category?.id,
+        note: note,
+      ),
+    ];
+
+    setState(() => _saving = true);
+    try {
+      await ref.read(ledgerServiceProvider).createBatch(drafts);
+      HapticFeedback.mediumImpact();
+      showAppSnackBar(
+          'Saved — you owe ${person.name} ${formatMinor(amountMinor)}');
       if (mounted) context.pop();
     } on LedgerValidationException catch (e) {
       showAppSnackBar(e.message);
