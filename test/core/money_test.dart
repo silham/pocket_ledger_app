@@ -27,6 +27,21 @@ void main() {
     });
   });
 
+  group('parseSignedAmountToMinor', () {
+    test('accepts zero and negative balances', () {
+      expect(parseSignedAmountToMinor('0'), 0);
+      expect(parseSignedAmountToMinor('-250.5'), -250_50);
+      expect(parseSignedAmountToMinor('1,000'), 1000_00);
+      expect(parseSignedAmountToMinor('100-150'), -50_00);
+    });
+
+    test('rejects invalid input', () {
+      expect(parseSignedAmountToMinor(''), isNull);
+      expect(parseSignedAmountToMinor('abc'), isNull);
+      expect(parseSignedAmountToMinor('-1.999'), isNull);
+    });
+  });
+
   group('formatMinor', () {
     test('formats with symbol, thousands separators and sign', () {
       expect(formatMinor(450_50), 'Rs. 450.50');

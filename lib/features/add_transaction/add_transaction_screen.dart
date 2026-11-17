@@ -66,6 +66,11 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
 
   bool get _isEditing => widget.editId != null;
 
+  /// New adjustments are entered as the account's actual balance; the app
+  /// works out the difference. Editing an existing adjustment keeps the
+  /// stored increase/reduce amount, since that row is a delta.
+  bool get _setsBalance => _type == TransactionType.adjustment && !_isEditing;
+
   @override
   void initState() {
     super.initState();
@@ -160,6 +165,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
           _buildTypeChips(),
           const SizedBox(height: 16),
           _buildAmountField(),
+          if (_setsBalance) _buildBalancePreview(accounts),
           const SizedBox(height: 16),
           _PickerTile(
             icon: Icons.account_balance_wallet_outlined,
@@ -218,7 +224,8 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
               onTap: _pickPerson,
             ),
           if (_paidByOther) _buildPaidByOtherPreview(),
-          if (_type == TransactionType.adjustment) _buildAdjustmentDirection(),
+          if (_type == TransactionType.adjustment && !_setsBalance)
+            _buildAdjustmentDirection(),
           _PickerTile(
             icon: Icons.event_outlined,
             label: 'Date',
@@ -288,6 +295,7 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
           style: Theme.of(context).textTheme.headlineMedium,
           decoration: InputDecoration(
             labelText: switch ((_split, _paidByOther)) {
+              _ when _setsBalance => 'New balance',
               (true, _) => 'Total paid',
               (_, true) => 'Amount they paid',
               _ => 'Amount',
@@ -314,7 +322,9 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   String? _amountPreview() {
     final text = _amountController.text;
     if (!text.contains(RegExp(r'[+\-*/]'))) return null;
-    final minor = parseAmountToMinor(text);
+    final minor = _setsBalance
+        ? parseSignedAmountToMinor(text)
+        : parseAmountToMinor(text);
     return minor == null ? null : '= ${formatMinor(minor)}';
   }
 
@@ -352,6 +362,42 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       selection: TextSelection.collapsed(offset: start + op.length),
     );
     setState(() => _amountError = null);
+  }
+
+  /// "Current Rs. X · change +Rs. Y" under the new-balance field. Reads the
+  /// balance from the live accounts list, not the possibly stale [_account].
+  Widget _buildBalancePreview(List<Account> accounts) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final current = _liveBalance(accounts);
+    final target = parseSignedAmountToMinor(_amountController.text);
+    final String message;
+    if (current == null) {
+      message = 'Pick an account';
+    } else if (target == null) {
+      message = 'Current balance ${formatMinor(current)}';
+    } else {
+      final delta = target - current;
+      message = 'Current ${formatMinor(current)} · '
+          '${delta == 0 ? 'no change' : 'change ${delta > 0 ? '+' : ''}${formatMinor(delta)}'}';
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, left: 4, right: 4),
+      child: Text(
+        message,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+      ),
+    );
+  }
+
+  int? _liveBalance(List<Account> accounts) {
+    final id = _account?.id;
+    if (id == null) return null;
+    for (final a in accounts) {
+      if (a.id == id) return a.balanceMinor;
+    }
+    return _account!.balanceMinor;
   }
 
   Widget _buildAdjustmentDirection() {
@@ -744,6 +790,10 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
   }
 
   Future<void> _save() async {
+    if (_setsBalance) {
+      await _saveBalanceAdjustment();
+      return;
+    }
     final amountMinor = parseAmountToMinor(_amountController.text);
     if (amountMinor == null) {
       setState(() => _amountError = 'Enter a valid amount');
@@ -796,6 +846,54 @@ class _AddTransactionScreenState extends ConsumerState<AddTransactionScreen> {
       HapticFeedback.mediumImpact();
       showAppSnackBar(
           '${_type.label} ${_isEditing ? 'updated' : 'saved'}');
+      if (mounted) context.pop();
+    } on LedgerValidationException catch (e) {
+      showAppSnackBar(e.message);
+      setState(() => _saving = false);
+    } catch (_) {
+      showAppSnackBar('Could not save — please try again');
+      setState(() => _saving = false);
+    }
+  }
+
+  /// Turns the entered new balance into an ordinary adjustment row for the
+  /// difference. The balance is re-read from the database at save time so
+  /// the delta matches what's actually stored.
+  Future<void> _saveBalanceAdjustment() async {
+    final target = parseSignedAmountToMinor(_amountController.text);
+    if (target == null) {
+      setState(() => _amountError = 'Enter a valid balance');
+      return;
+    }
+    final account = _account;
+    if (account == null) {
+      showAppSnackBar('Pick an account first');
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final db = ref.read(databaseProvider);
+      final fresh = await (db.select(db.accounts)
+            ..where((a) => a.id.equals(account.id)))
+          .getSingleOrNull();
+      final delta = target - (fresh ?? account).balanceMinor;
+      if (delta == 0) {
+        showAppSnackBar('Balance already matches — nothing to adjust');
+        setState(() => _saving = false);
+        return;
+      }
+      final typed = _noteController.text.trim();
+      await ref.read(ledgerServiceProvider).createTransaction(TransactionDraft(
+            type: TransactionType.adjustment,
+            amountMinor: delta.abs(),
+            date: _date,
+            accountId: account.id,
+            note: typed.isEmpty ? null : typed,
+            isNegativeAdjustment: delta < 0,
+          ));
+      HapticFeedback.mediumImpact();
+      showAppSnackBar('${account.name} balance set to ${formatMinor(target)}');
       if (mounted) context.pop();
     } on LedgerValidationException catch (e) {
       showAppSnackBar(e.message);

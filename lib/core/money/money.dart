@@ -13,9 +13,15 @@ final _displayFormat = NumberFormat('#,##0.00');
 /// "12.5*2", "(10+5)/3"); see [evaluateAmount]. Returns null for empty,
 /// non-numeric, zero/negative, or results needing more than two decimals.
 int? parseAmountToMinor(String input) {
+  final minor = parseSignedAmountToMinor(input);
+  return minor == null || minor <= 0 ? null : minor;
+}
+
+/// Like [parseAmountToMinor] but also accepts zero and negative results —
+/// for entering a balance (e.g. an overdrawn account) rather than an amount.
+int? parseSignedAmountToMinor(String input) {
   final value = evaluateAmount(input);
-  if (value == null || value <= Decimal.zero) return null;
-  if (value.scale > 2) return null;
+  if (value == null || value.scale > 2) return null;
   final minor = (value * Decimal.fromInt(100)).toBigInt();
   if (!minor.isValidInt) return null;
   return minor.toInt();
